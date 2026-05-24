@@ -861,6 +861,7 @@
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;">
       <div class="date-badge" id="todayDate">─</div>
       <button class="btn btn-primary btn-sm" onclick="fetchRecommendations()">🔄 讀取今日選股</button>
+      <button class="btn btn-ghost btn-sm" onclick="triggerGasScan()" id="triggerBtn" title="通知 GAS 立刻開始掃描全市場，完成後寄 Email 通知你">⚡ 觸發 GAS 掃描</button>
     </div>
   </div>
 
@@ -1435,6 +1436,45 @@ async function callGemini(prompt, useSearch = false) {
 // ═══════════════════════════════════════════════════
 // 從 GAS 讀取掃描結果
 // ═══════════════════════════════════════════════════
+
+async function triggerGasScan() {
+  if (!state.gasUrl) {
+    notify('請先在設定中填入 GAS URL', 'error');
+    openSettings();
+    return;
+  }
+
+  if (!confirm('確定要觸發 GAS 開始掃描全市場？\n\n掃描約需 75 分鐘，完成後會寄 Email 通知你。\n掃描期間可以關閉網頁。')) return;
+
+  const btn = document.getElementById('triggerBtn');
+  btn.textContent = '⏳ 觸發中...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(state.gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'startScan' })
+    });
+    const json = await res.json();
+
+    if (json.status === 'ok') {
+      notify('✓ GAS 掃描已啟動！約 75 分鐘後完成，完成後寄 Email 通知你', 'success');
+      btn.textContent = '✓ 已觸發';
+      // 5 分鐘後恢復按鈕
+      setTimeout(() => {
+        btn.textContent = '⚡ 觸發 GAS 掃描';
+        btn.disabled = false;
+      }, 5 * 60 * 1000);
+    } else {
+      throw new Error(json.msg || '觸發失敗');
+    }
+  } catch(e) {
+    notify('觸發失敗：' + e.message, 'error');
+    btn.textContent = '⚡ 觸發 GAS 掃描';
+    btn.disabled = false;
+  }
+}
 
 async function fetchRecommendations() {
   if (!state.gasUrl) {
