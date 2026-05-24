@@ -1117,16 +1117,19 @@
 const INITIAL_CAPITAL = 200000;
 
 let state = {
-  capital: INITIAL_CAPITAL,
-  token: '',
-  gasUrl: '',
-  startDate: '',
-  cash: INITIAL_CAPITAL,
-  holdings: [],      // { id, name, combo, priority, entryPrice, lots, stopLoss, target1, target2, atr, entryDate, status }
-  trades: [],        // completed trades
-  dailySnapshots: [], // { date, totalAsset }
-  recommendations: [], // today's picks
-  tradeLog: []
+  capital:        INITIAL_CAPITAL,
+  cash:           INITIAL_CAPITAL,
+  token:          '',
+  geminiKey:      '',
+  gasUrl:         '',
+  emailNotify:    true,
+  startDate:      '',
+  stockNames:     {},
+  holdings:       [], // { id, name, combo, combos, priority, entryPrice, shares, sharesRemaining, stopLoss, target1, target2, atr, entryDate, status, costBasis, fee }
+  trades:         [], // { date, id, name, action, price, shares, amount, pnl, reason }
+  dailySnapshots: [],
+  recommendations:[],
+  tradeLog:       []
 };
 
 let assetChartInstance = null;
@@ -1281,219 +1284,40 @@ function resetAll() {
 // ═══════════════════════════════════════════════════
 const FINMIND_BASE = 'https://api.finmindtrade.com/api/v4/data';
 
-async function finmind(dataset, stockId, startDate, endDate) {
-  const params = new URLSearchParams({
-    dataset,
-    data_id: stockId,
-    start_date: startDate,
-    end_date: endDate || todayStr(),
-    token: state.token
-  });
-  const res = await fetch(`${FINMIND_BASE}?${params}`);
-  const json = await res.json();
-  if (json.status !== 200) throw new Error(json.msg || 'FinMind API error');
-  return json.data;
-}
 
-async function finmindNoId(dataset, startDate, endDate) {
-  const params = new URLSearchParams({
-    dataset,
-    start_date: startDate,
-    end_date: endDate || todayStr(),
-    token: state.token
-  });
-  const res = await fetch(`${FINMIND_BASE}?${params}`);
-  const json = await res.json();
-  if (json.status !== 200) throw new Error(json.msg || 'FinMind API error');
-  return json.data;
-}
 
 // TaiwanStockInfo 不需要日期參數
-async function finmindStockInfo() {
-  const params = new URLSearchParams({
-    dataset: 'TaiwanStockInfo',
-    token: state.token
-  });
-  const res = await fetch(`${FINMIND_BASE}?${params}`);
-  const json = await res.json();
-  if (json.status !== 200) throw new Error(json.msg || 'FinMind API error');
-  return json.data || [];
-}
 
 // ═══════════════════════════════════════════════════
 // SCREENING ENGINE
 // ═══════════════════════════════════════════════════
 
-function calcMA(prices, period) {
-  if (prices.length < period) return null;
-  return prices.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
 
-function calcATR(ohlc, period = 14) {
-  if (ohlc.length < period + 1) return null;
-  const trs = [];
-  for (let i = 1; i < ohlc.length; i++) {
-    const high = ohlc[i].max, low = ohlc[i].min, prevClose = ohlc[i-1].close;
-    trs.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
-  }
-  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
 
-function calcATRMultiplier(combo) {
-  const map = { 'B': 2.0, 'D': 2.0, 'A': 1.5, 'C': 1.5, 'E': 1.0, 'F': 1.5 };
-  return map[combo] || 1.5;
-}
 
-function calcPositionSize(priority) {
-  const map = { 5: 0.20, 4: 0.15, 3: 0.10, 2: 0.05 };
-  return (map[priority] || 0.05) * state.capital;
-}
 
 // 零股版建議股數計算
-function calcSuggestedShares(priority, entryPrice) {
-  const targetAmount = calcPositionSize(priority);
-  // 考量現金保留：可動用資金 = 現金 × 80%（保留20%）
-  const availableCash = state.cash * 0.80;
-  const actualAmount = Math.min(targetAmount, availableCash);
-  if (actualAmount < entryPrice) return { shares: 0, amount: 0, insufficient: true };
-  // 零股：直接用金額除股價，無需乘以1000
-  const shares = Math.floor(actualAmount / entryPrice);
-  return { shares, amount: +(shares * entryPrice).toFixed(0), insufficient: false };
-}
 
 // ── 市值分層輔助 ──
-function getMarketTier(marketCap) {
-  // marketCap 單位：億元
-  if (!marketCap || marketCap <= 0) return 'mid'; // 無資料預設中型
-  if (marketCap >= 500) return 'large';
-  if (marketCap >= 100) return 'mid';
-  return 'small';
-}
 
-function getVolMultiplier(tier) {
-  return { large: 1.5, mid: 1.8, small: 2.0 }[tier] || 1.8;
-}
 
 // ── 排除條件 ──
-function shouldExclude(ohlc, volumes, marketCap) {
-  if (!ohlc || ohlc.length < 5) return true;
-  const today = ohlc[ohlc.length - 1];
-  // 當日成交金額 < 500萬（流動性太差）
-  const todayAmount = today.close * (volumes[volumes.length - 1] || 0);
-  if (todayAmount < 5000000) return true;
-  // 近5日有跌停（-9.9%以上）
-  const recent5 = ohlc.slice(-5);
-  const hasLimit = recent5.some(d => (d.close - d.open) / d.open < -0.095);
-  if (hasLimit) return true;
-  // 股本太小（市值 < 10億）
-  if (marketCap && marketCap < 10) return true;
-  return false;
-}
 
 // Combo A: 趨勢突破（依市值調整量能門檻）
-function checkComboA(ohlc, volumes, tier = 'large') {
-  if (ohlc.length < 60) return false;
-  const closes = ohlc.map(d => d.close);
-  const ma5 = calcMA(closes, 5);
-  const ma20 = calcMA(closes, 20);
-  const ma60 = calcMA(closes, 60);
-  if (!ma5 || !ma20 || !ma60) return false;
-  const high20 = Math.max(...ohlc.slice(-21, -1).map(d => d.max));
-  const avgVol5 = volumes.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
-  const todayClose = closes[closes.length - 1];
-  const todayVol = volumes[volumes.length - 1];
-  const mult = getVolMultiplier(tier);
-  return todayClose > high20 && todayVol > avgVol5 * mult && ma5 > ma20 && ma20 > ma60;
-}
 
 // Combo B: 籌碼驅動（大中型為主，小型股放寬法人條件）
-function checkComboB(ohlc, itrust, foreign, tier = 'large') {
-  if (ohlc.length < 20) return false;
-  const closes = ohlc.map(d => d.close);
-  const ma20 = calcMA(closes, 20);
-  if (!ma20) return false;
-  const todayClose = closes[closes.length - 1];
-  if (tier === 'small') {
-    // 小型股：只要投信有買就算，不強求外資
-    const itrustBuy = itrust.slice(-5).filter(v => v > 0).length >= 2;
-    return todayClose > ma20 && itrustBuy;
-  }
-  const itrustBuy = itrust.slice(-5).filter(v => v > 0).length >= 3;
-  const foreignBuy = foreign.slice(-3).filter(v => v > 0).length >= 2;
-  return todayClose > ma20 && itrustBuy && foreignBuy;
-}
 
 // Combo C: 爆量反轉（依市值調整量能門檻）
-function checkComboC(ohlc, volumes, tier = 'large') {
-  if (ohlc.length < 10) return false;
-  const recent = ohlc.slice(-5);
-  const hasBlackK = recent.slice(0, -1).some(d => d.close < d.open);
-  const today = ohlc[ohlc.length - 1];
-  const avgVol10 = volumes.slice(-11, -1).reduce((a, b) => a + b, 0) / 10;
-  const todayVol = volumes[volumes.length - 1];
-  const low10 = Math.min(...ohlc.slice(-11, -1).map(d => d.min));
-  const rebound = (today.close - low10) / low10 > 0.05;
-  const mult = tier === 'small' ? 2.5 : 2.0;
-  return hasBlackK && today.close > today.open && todayVol > avgVol10 * mult && rebound;
-}
 
 // Combo D: 箱型整理突破（依市值調整量能門檻）
-function checkComboD(ohlc, volumes, tier = 'large') {
-  if (ohlc.length < 20) return false;
-  const box = ohlc.slice(-21, -1);
-  const boxHigh = Math.max(...box.map(d => d.max));
-  const boxLow = Math.min(...box.map(d => d.min));
-  const boxRange = (boxHigh - boxLow) / boxLow;
-  const avgVolBox = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
-  const today = ohlc[ohlc.length - 1];
-  const todayVol = volumes[volumes.length - 1];
-  const mult = getVolMultiplier(tier);
-  return boxRange < 0.08 && today.close > boxHigh && todayVol > avgVolBox * mult;
-}
 
 // Combo E: 強勢慣性
-function checkComboE(ohlc, volumes) {
-  if (ohlc.length < 5) return false;
-  const closes = ohlc.map(d => d.close);
-  const gain5 = (closes[closes.length-1] - closes[closes.length-6]) / closes[closes.length-6];
-  const today = ohlc[ohlc.length - 1];
-  const volIncreasing = volumes[volumes.length-1] > volumes[volumes.length-2] && volumes[volumes.length-2] > volumes[volumes.length-3];
-  const notLimit = (today.close - today.open) / today.open < 0.095;
-  return gain5 > 0.10 && today.close > today.open && volIncreasing && notLimit;
-}
 
 // Combo F: 小型股爆量起漲（專屬小型股）
-function checkComboF(ohlc, volumes) {
-  if (ohlc.length < 60) return false;
-  const closes = ohlc.map(d => d.close);
-  const today = ohlc[ohlc.length - 1];
-  const todayVol = volumes[volumes.length - 1];
-  const avgVol20 = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
-  // 今日爆量 > 20日均量 × 2.5
-  if (todayVol <= avgVol20 * 2.5) return false;
-  // 今日收盤 > 昨日最高（強勢突破）
-  const yesterday = ohlc[ohlc.length - 2];
-  if (today.close <= yesterday.max) return false;
-  // 今日收紅
-  if (today.close <= today.open) return false;
-  // 近60日曾有低檔整理（最高/最低價差 > 15%，代表有波動空間）
-  const high60 = Math.max(...ohlc.slice(-60).map(d => d.max));
-  const low60 = Math.min(...ohlc.slice(-60).map(d => d.min));
-  const hasRange = (high60 - low60) / low60 > 0.15;
-  // 目前股價距離60日高點還有空間（不在最高點附近）
-  const notAtTop = today.close < high60 * 0.92;
-  return hasRange && notAtTop;
-}
 
 // Relative strength
-function calcRS(stockReturns5d, marketReturn5d) {
-  return stockReturns5d - marketReturn5d;
-}
 
 // 批次請求，避免rate limit
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // ═══════════════════════════════════════════════════
 // GEMINI 分析引擎
@@ -1593,121 +1417,10 @@ async function callGemini(prompt, useSearch = false) {
   return clean;
 }
 
-// ── 1. 消息面分析 ──
-async function analyzeNews(stockId, stockName) {
-  const today = new Date().toLocaleDateString('zh-TW');
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋以下資訊，然後分析台灣上市股票「${stockId} ${stockName || ''}」的最新消息面。
 
-搜尋關鍵字建議：「${stockId} ${stockName || ''} 新聞」、「${stockId} ${stockName || ''} 法說會」、「${stockId} ${stockName || ''} 營收」
 
-分析以下四個面向：
-1. 近 14 天有無重大利多消息（法說會超預期、大訂單、策略合作、產品突破）
-2. 近 14 天有無重大利空消息（虧損、客戶流失、競爭加劇、主管異動）
-3. 所屬產業近期景氣方向（AI / 半導體 / 金融 / 傳產等）
-4. 整體消息面偏多或偏空
-
-評分規則（score 必須是 -2、-1、0、1、2 其中一個整數）：
-+2 = 有明確重大利多且無重大利空
-+1 = 消息偏正面但程度溫和
- 0 = 中性或資訊不足
--1 = 消息偏負面但程度溫和
--2 = 有明確重大利空
-
-請只回傳以下 JSON，不要有任何其他文字：
-{"score":0,"summary":"2至3句繁體中文摘要","keyNews":["消息1","消息2"],"riskAlert":"風險說明或目前無明顯利空"}`;
-
-  try {
-    const raw = await callGemini(prompt, true);
-    const parsed = JSON.parse(raw);
-    // 確保 score 是整數
-    parsed.score = Math.max(-2, Math.min(2, parseInt(parsed.score) || 0));
-    return parsed;
-  } catch(e) {
-    return { score: 0, summary: `分析中遇到問題：${e.message?.slice(0,30)}`, keyNews: [], riskAlert: '請稍後重試' };
-  }
-}
-
-// ── 2. 券商目標價分析 ──
-async function analyzeBrokerTarget(stockId, stockName, currentPrice) {
-  const today = new Date().toLocaleDateString('zh-TW');
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣股票「${stockId} ${stockName || ''}」的券商目標價資訊。
-
-搜尋關鍵字建議：「${stockId} ${stockName || ''} 目標價」、「${stockId} ${stockName || ''} 券商報告」、「${stockId} target price」
-
-目前股價約 ${currentPrice} 元。
-
-請搜尋並彙整：
-1. 近 6 個月內各大券商（富邦、國泰、元大、凱基、摩根士丹利、高盛、瑞銀、花旗、美林、麥格理、JP Morgan）的目標價
-2. 多數券商的評級共識（強力買進/買進/中立/賣出）
-3. 近期是否有券商上調或下調目標價
-
-score 評分規則（必須是 -2、-1、0、1、2 其中一個整數）：
-+2 = 目標價中位數距現價 >20% 且多數評級為買進
-+1 = 目標價距現價 10~20% 或評級偏正面
- 0 = 目標價距現價 <10% 或評級分歧或查無資料
--1 = 多數評級保守或中立
--2 = 有主要券商下調評級或目標價低於現價
-
-請只回傳以下 JSON，不要有任何其他文字：
-{"score":0,"targetHigh":null,"targetLow":null,"targetMedian":null,"upsidePct":null,"consensusRating":"資料不足","recentChange":"資料不足","brokerList":[],"summary":"2句繁體中文摘要"}`;
-
-  try {
-    const raw = await callGemini(prompt, true);
-    const parsed = JSON.parse(raw);
-    parsed.score = Math.max(-2, Math.min(2, parseInt(parsed.score) || 0));
-    return parsed;
-  } catch(e) {
-    return { score: 0, targetMedian: null, consensusRating: '資料不足', recentChange: '資料不足', brokerList: [], summary: `分析中遇到問題：${e.message?.slice(0,30)}` };
-  }
-}
-
-// ── 3. 基本面分析 ──
-async function analyzeFundamentals(stockId, stockName, currentPrice) {
-  const today = new Date().toLocaleDateString('zh-TW');
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣股票「${stockId} ${stockName || ''}」的基本面財務資訊。
-
-搜尋關鍵字建議：「${stockId} ${stockName || ''} EPS」、「${stockId} ${stockName || ''} 營收」、「${stockId} ${stockName || ''} 財報」
-
-目前股價約 ${currentPrice} 元。
-
-請搜尋並分析：
-1. 近四季 EPS 數字與趨勢（成長/持平/衰退）
-2. 近三個月月營收數字與年增率 YoY
-3. 本益比 PE = 現價除以近四季 EPS 合計，並與同業比較
-4. 最新一季毛利率趨勢（擴張/持平/收縮）
-5. 負債比率與財務健康狀況
-6. 所屬產業景氣循環位置
-
-score 評分規則（必須是 -2、-1、0、1、2 其中一個整數）：
-+2 = EPS 連續成長、營收 YoY 正成長、PE 合理、財務健康
-+1 = 多數指標正面
- 0 = 好壞參半或資料不足
--1 = 多數指標偏弱
--2 = EPS 虧損或大幅衰退、營收連續衰退
-
-請只回傳以下 JSON，不要有任何其他文字：
-{"score":0,"epsGrowth":"成長","revenueGrowth":"成長","peRatio":null,"peAssessment":"合理","marginTrend":"持平","financialHealth":"健康","industryCycle":"擴張","summary":"2至3句繁體中文基本面摘要","recentEps":[],"recentRevenue":[]}`;
-
-  try {
-    const raw = await callGemini(prompt, true);
-    const parsed = JSON.parse(raw);
-    parsed.score = Math.max(-2, Math.min(2, parseInt(parsed.score) || 0));
-    return parsed;
-  } catch(e) {
-    return { score: 0, epsGrowth: '資料不足', revenueGrowth: '資料不足', peRatio: null, peAssessment: '資料不足', marginTrend: '資料不足', financialHealth: '資料不足', industryCycle: '不確定', summary: `分析中遇到問題：${e.message?.slice(0,30)}`, recentEps: [], recentRevenue: [] };
-  }
-}
 
 // ── 綜合評分計算 ──
-function calcGeminiTotalScore(news, broker, fundamental) {
-  const total = (news?.score || 0) + (broker?.score || 0) + (fundamental?.score || 0);
-  // total 範圍 -6 到 +6，轉換為優先級加成
-  if (total >= 4) return 2;
-  if (total >= 2) return 1;
-  if (total >= 0) return 0;
-  if (total >= -2) return -1;
-  return -2;
-}
 
 
 
@@ -1819,34 +1532,6 @@ async function fetchRecommendations() {
   }
 }
 
-// ── Email 通知 ──
-async function sendEmailNotification(results, summary = {}) {
-  if (!state.gasUrl) return;
-  if (state.emailNotify === false) return;
-  try {
-    // 只傳必要欄位，不傳大型 Gemini 分析資料
-    const slim = results.map(r => ({
-      id: r.id, name: r.name || '', tier: r.tier || 'mid',
-      combo: r.combo, combos: r.combos, hitCount: r.hitCount,
-      priority: r.priority, entryPrice: r.entryPrice,
-      stopLoss: r.stopLoss, target1: r.target1, target2: r.target2,
-      analystUpside: r.analystUpside, geminiTotal: r.geminiTotal || null
-    }));
-
-    const res = await fetch(state.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'sendNotification', results: slim, summary })
-    });
-    const json = await res.json();
-    if (json.status === 'ok' && json.sent) {
-      notify('📧 選股結果已寄送到你的 Gmail', 'success');
-    }
-  } catch(e) {
-    console.warn('Email 通知失敗:', e.message);
-  }
-}
-
 // ── Gemini 分析區塊 HTML 建構 ──
 function scoreClass(n) {
   if (n >= 2) return 'pos2';
@@ -1856,10 +1541,6 @@ function scoreClass(n) {
   return 'neg2';
 }
 
-function scoreLabel(n) {
-  const map = { 2: '強多', 1: '偏多', 0: '中性', '-1': '偏空', '-2': '強空' };
-  return map[String(n)] || '─';
-}
 
 function buildGeminiSection(s) {
   const uid = s.id + '_' + Date.now();
@@ -2388,7 +2069,7 @@ function executeSell(hIdx, price, lots, date, reason, isProfit) {
   });
 
   addTradeLog(date, isProfit ? 'sell-profit' : 'sell-loss',
-    `賣出 ${h.id} ${lots} 張 @ ${price}，損益 ${pnl >= 0 ? '+' : ''}NT$ ${pnl.toFixed(0)}（${reason}）`);
+    `賣出 ${h.id} ${lots.toLocaleString()} 股 @ ${price}，損益 ${pnl >= 0 ? '+' : ''}NT$ ${pnl.toFixed(0)}（${reason}）`);
 
   if (h.sharesRemaining <= 0) {
     h.status = 'closed';
@@ -2600,11 +2281,6 @@ function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().split('T')[0];
-}
 
 function saveDailySnapshot() {
   const today = todayStr();
@@ -2691,4 +2367,3 @@ if (state.recommendations && state.recommendations.length > 0) {
 
 </script>
 </body>
-</html>
