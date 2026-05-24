@@ -87,6 +87,14 @@ function doPost(e) {
       return jsonResponse({ status: 'ok', sent });
     }
 
+    if (action === 'saveConfig') {
+      saveConfigToSheet(body.config || {});
+      if (body.config && (body.config.SCAN_TRIGGER_HOUR !== undefined || body.config.SCAN_TRIGGER_MIN !== undefined)) {
+        resetDailyTrigger();
+      }
+      return jsonResponse({ status: 'ok' });
+    }
+
     if (action === 'startScan') {
       // 網頁手動觸發 GAS 掃描
       initScanProgress();
@@ -116,6 +124,7 @@ function jsonResponse(obj) {
  */
 function dailyScanStart() {
   Logger.log('=== 每日掃描開始 ===');
+  loadConfigFromSheet(); // 載入最新設定
   initScanProgress();
   runScanBatch(); // 執行第一批
 }
@@ -1017,6 +1026,104 @@ function loadSnapshots() {
     const data = sheet.getDataRange().getValues();
     return data.slice(1).filter(r => r[0]).map(r => ({ date: r[0], totalAsset: r[1] }));
   } catch(e) { return []; }
+}
+
+
+// ══════════════════════════════════════════════
+// 動態設定管理（從 HTML 設定頁同步）
+// ══════════════════════════════════════════════
+
+/**
+ * 從 Sheets 載入設定，覆蓋 CONFIG
+ * 每次掃描前呼叫，確保使用最新設定
+ */
+function loadConfigFromSheet() {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config');
+    if (!sheet) return;
+    const data = sheet.getDataRange().getValues();
+    data.forEach(row => {
+      const key = row[0], val = row[1];
+      if (key && val !== '' && CONFIG.hasOwnProperty(key)) {
+        // 數字欄位轉型
+        if (['BATCH_SIZE','SCAN_TRIGGER_HOUR','SCAN_TRIGGER_MIN','SCAN_INTERVAL_MIN'].includes(key)) {
+          CONFIG[key] = parseInt(val) || CONFIG[key];
+        } else {
+          CONFIG[key] = String(val);
+        }
+      }
+    });
+    Logger.log('設定已從 Sheets 載入：' + JSON.stringify(CONFIG));
+  } catch(e) {
+    Logger.log('loadConfigFromSheet 失敗：' + e.message);
+  }
+}
+
+/**
+ * 從 HTML 設定頁接收設定值並存入 Sheets
+ */
+function saveConfigToSheet(config) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Config');
+  if (!sheet) {
+    sheet = ss.insertSheet('Config');
+    sheet.getRange(1,1,1,3).setValues([['參數名稱','值','說明']]);
+    sheet.getRange(1,1,1,3).setBackground('#2c4a6e').setFontColor('#ffffff').setFontWeight('bold');
+  }
+
+  const fieldMap = {
+    FINMIND_TOKEN:      'FinMind API Token',
+    GEMINI_KEY:         'Gemini API Key',
+    NOTIFY_EMAIL:       '通知 Email',
+    BATCH_SIZE:         '每批掃描檔數',
+    SCAN_TRIGGER_HOUR:  '每天掃描時間（小時）',
+    SCAN_TRIGGER_MIN:   '每天掃描時間（分鐘）',
+    SCAN_INTERVAL_MIN:  '批次間隔分鐘',
+  };
+
+  // 先清除再寫入
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+
+  const rows = Object.entries(fieldMap).map(([key, desc]) => [
+    key,
+    config[key] !== undefined ? config[key] : CONFIG[key],
+    desc
+  ]);
+
+  sheet.getRange(2, 1, rows.length, 3).setValues(rows);
+
+  // 同時更新記憶體中的 CONFIG
+  rows.forEach(([key, val]) => {
+    if (CONFIG.hasOwnProperty(key) && val !== '') {
+      if (['BATCH_SIZE','SCAN_TRIGGER_HOUR','SCAN_TRIGGER_MIN','SCAN_INTERVAL_MIN'].includes(key)) {
+        CONFIG[key] = parseInt(val) || CONFIG[key];
+      } else {
+        CONFIG[key] = String(val);
+      }
+    }
+  });
+
+  Logger.log('設定已儲存至 Sheets');
+}
+
+/**
+ * 重設每日掃描觸發器（設定時間改變時呼叫）
+ */
+function resetDailyTrigger() {
+  // 刪除舊的每日觸發器
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'dailyScanStart') ScriptApp.deleteTrigger(t);
+  });
+  // 用新時間建立
+  ScriptApp.newTrigger('dailyScanStart')
+    .timeBased()
+    .everyDays(1)
+    .atHour(CONFIG.SCAN_TRIGGER_HOUR)
+    .nearMinute(CONFIG.SCAN_TRIGGER_MIN)
+    .inTimezone('Asia/Taipei')
+    .create();
+  Logger.log(`觸發器已重設為 ${CONFIG.SCAN_TRIGGER_HOUR}:${CONFIG.SCAN_TRIGGER_MIN}`);
 }
 
 // ══════════════════════════════════════════════
