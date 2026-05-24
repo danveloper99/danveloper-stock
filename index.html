@@ -1051,8 +1051,11 @@
 
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay" id="settingsModal">
-  <div class="modal">
+  <div class="modal" style="width:560px;max-height:90vh;overflow-y:auto;">
     <h3>// 系統設定</h3>
+
+    <div style="font-size:0.72rem;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin-bottom:1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">▌ API 金鑰</div>
+
     <div class="form-group">
       <label>FinMind API Token</label>
       <input class="form-input" type="password" id="settingToken" placeholder="貼上你的 FinMind token">
@@ -1066,28 +1069,53 @@
       </div>
     </div>
     <div class="form-group">
-      <label>GAS 後端 URL（選填，用於跨裝置同步）</label>
+      <label>GAS Web App URL</label>
       <input class="form-input" type="text" id="settingGasUrl" placeholder="https://script.google.com/macros/s/...">
     </div>
+
+    <div style="font-size:0.72rem;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">▌ GAS 掃描參數（儲存後同步至 GAS）</div>
+
     <div class="form-group">
-      <label>模擬本金（元）</label>
-      <input class="form-input" type="number" id="settingCapital" value="200000">
+      <label>通知 Email（留空則寄給 GAS 帳號）</label>
+      <input class="form-input" type="email" id="settingNotifyEmail" placeholder="your@gmail.com">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+      <div class="form-group">
+        <label>每天幾點開始掃描（小時）</label>
+        <input class="form-input" type="number" id="settingScanHour" value="14" min="0" max="23">
+      </div>
+      <div class="form-group">
+        <label>幾分開始</label>
+        <input class="form-input" type="number" id="settingScanMin" value="30" min="0" max="59">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>每批掃描檔數（建議 30～50，不要超過 80）</label>
+      <input class="form-input" type="number" id="settingBatchSize" value="50" min="10" max="80">
     </div>
     <div class="form-group">
       <label>掃描完成後 Email 通知</label>
       <div style="display:flex;align-items:center;gap:0.8rem;margin-top:0.3rem;">
         <input type="checkbox" id="settingEmailNotify" style="width:16px;height:16px;accent-color:var(--accent);">
-        <span style="font-size:0.85rem;color:var(--text2);">掃描完成後自動寄送結果到 GAS 帳號的 Gmail（需填入 GAS URL）</span>
+        <span style="font-size:0.85rem;color:var(--text2);">掃描完成後自動寄送結果到 Email</span>
       </div>
+    </div>
+
+    <div style="font-size:0.72rem;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">▌ 模擬設定</div>
+
+    <div class="form-group">
+      <label>模擬本金（元）</label>
+      <input class="form-input" type="number" id="settingCapital" value="200000">
     </div>
     <div class="form-group">
       <label>模擬開始日期</label>
       <input class="form-input" type="date" id="settingStartDate">
     </div>
+
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" onclick="resetAll()">清除所有資料</button>
       <button class="btn btn-ghost" onclick="closeSettings()">取消</button>
-      <button class="btn btn-primary" onclick="saveSettings()">儲存</button>
+      <button class="btn btn-primary" onclick="saveSettings()">儲存並同步至 GAS</button>
     </div>
   </div>
 </div>
@@ -1124,10 +1152,14 @@ let state = {
   geminiKey:      '',
   gasUrl:         '',
   emailNotify:    true,
+  notifyEmail:    '',
+  scanHour:       14,
+  scanMin:        30,
+  batchSize:      50,
   startDate:      '',
   stockNames:     {},
-  holdings:       [], // { id, name, combo, combos, priority, entryPrice, shares, sharesRemaining, stopLoss, target1, target2, atr, entryDate, status, costBasis, fee }
-  trades:         [], // { date, id, name, action, price, shares, amount, pnl, reason }
+  holdings:       [],
+  trades:         [],
   dailySnapshots: [],
   recommendations:[],
   tradeLog:       []
@@ -1243,6 +1275,10 @@ function openSettings() {
   document.getElementById('settingCapital').value = state.capital || INITIAL_CAPITAL;
   document.getElementById('settingStartDate').value = state.startDate || todayStr();
   document.getElementById('settingEmailNotify').checked = state.emailNotify !== false;
+  document.getElementById('settingNotifyEmail').value = state.notifyEmail || '';
+  document.getElementById('settingScanHour').value = state.scanHour ?? 14;
+  document.getElementById('settingScanMin').value = state.scanMin ?? 30;
+  document.getElementById('settingBatchSize').value = state.batchSize || 50;
   document.getElementById('settingsModal').classList.add('open');
 }
 
@@ -1250,11 +1286,16 @@ function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
 }
 
-function saveSettings() {
+async function saveSettings() {
   state.token = document.getElementById('settingToken').value.trim();
   state.geminiKey = document.getElementById('settingGeminiKey').value.trim();
   state.gasUrl = document.getElementById('settingGasUrl').value.trim();
   state.emailNotify = document.getElementById('settingEmailNotify').checked;
+  state.notifyEmail = document.getElementById('settingNotifyEmail').value.trim();
+  state.scanHour = parseInt(document.getElementById('settingScanHour').value) ?? 14;
+  state.scanMin = parseInt(document.getElementById('settingScanMin').value) ?? 30;
+  state.batchSize = parseInt(document.getElementById('settingBatchSize').value) || 50;
+
   const newCap = parseInt(document.getElementById('settingCapital').value) || INITIAL_CAPITAL;
   if (newCap !== state.capital && state.trades.length === 0 && state.holdings.length === 0) {
     state.capital = newCap;
@@ -1262,9 +1303,49 @@ function saveSettings() {
   }
   state.startDate = document.getElementById('settingStartDate').value;
   saveState();
-  closeSettings();
-  updateUI();
-  notify('設定已儲存', 'success');
+
+  // 同步 GAS 掃描參數（若有填 GAS URL）
+  if (state.gasUrl) {
+    const btn = document.querySelector('.modal-actions .btn-primary');
+    btn.textContent = '同步中...';
+    btn.disabled = true;
+    try {
+      const res = await fetch(state.gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveConfig',
+          config: {
+            FINMIND_TOKEN: state.token,
+            GEMINI_KEY: state.geminiKey,
+            NOTIFY_EMAIL: state.notifyEmail,
+            BATCH_SIZE: state.batchSize,
+            SCAN_TRIGGER_HOUR: state.scanHour,
+            SCAN_TRIGGER_MIN: state.scanMin,
+          }
+        })
+      });
+      const json = await res.json();
+      if (json.status === 'ok') {
+        closeSettings();
+        updateUI();
+        notify('✓ 設定已儲存並同步至 GAS', 'success');
+      } else {
+        throw new Error(json.msg || '同步失敗');
+      }
+    } catch(e) {
+      closeSettings();
+      updateUI();
+      notify(`設定已儲存（GAS 同步失敗：${e.message}）`, 'info');
+    } finally {
+      btn.textContent = '儲存並同步至 GAS';
+      btn.disabled = false;
+    }
+  } else {
+    closeSettings();
+    updateUI();
+    notify('設定已儲存（未填 GAS URL，僅本機儲存）', 'success');
+  }
 }
 
 function resetAll() {
