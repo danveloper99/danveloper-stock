@@ -860,7 +860,7 @@
     <div class="section-title">盤後選股推薦</div>
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;">
       <div class="date-badge" id="todayDate">─</div>
-      <button class="btn btn-primary btn-sm" onclick="fetchRecommendations()">🔄 更新今日選股</button>
+      <button class="btn btn-primary btn-sm" onclick="fetchRecommendations()">🔄 讀取今日選股</button>
     </div>
   </div>
 
@@ -887,7 +887,7 @@
   <div id="stockListArea">
     <div class="empty-state">
       <div class="icon">📊</div>
-      <p>點擊「更新今日選股」開始分析<br>系統將從 FinMind API 抓取資料並計算各項指標</p>
+      <p>點擊「讀取今日選股」從 GAS 取得最新掃描結果<br>GAS 每天 14:30 自動掃描全市場，完成後寄 Email 通知你</p>
     </div>
   </div>
 </div>
@@ -1719,393 +1719,105 @@ function calcGeminiTotalScore(news, broker, fundamental) {
 // ═══════════════════════════════════════════════════
 
 // 掃描狀態（支援暫停/繼續）
-let scanState = {
-  running: false,
-  paused: false,
-  phase1Done: false,
-  candidates: [],     // 第一階段初篩通過的清單
-  scanned: 0,
-  results: [],
-  marketPass: true,
-  marketReturn5d: 0
-};
-
-function updateProgress(text, detail, pct) {
-  const prog = document.getElementById('scanProgress');
-  const det = document.getElementById('scanDetail');
-  const bar = document.getElementById('scanBar');
-  if (prog) prog.textContent = text;
-  if (det) det.textContent = detail;
-  if (bar) bar.style.width = (pct || 0) + '%';
-}
+// ═══════════════════════════════════════════════════
+// 從 GAS 讀取掃描結果
+// ═══════════════════════════════════════════════════
 
 async function fetchRecommendations() {
-  if (!state.token) {
-    notify('請先在設定中填入 FinMind Token', 'error');
+  if (!state.gasUrl) {
+    notify('請先在設定中填入 GAS URL', 'error');
     openSettings();
     return;
   }
 
-  if (scanState.running) {
-    notify('掃描進行中，請稍候', 'info');
-    return;
-  }
-
   const area = document.getElementById('stockListArea');
-  scanState = { running: true, paused: false, phase1Done: false, candidates: [], scanned: 0, results: [], marketPass: true, marketReturn5d: 0 };
-
   area.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin-bottom:1rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-        <div style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text3);text-transform:uppercase;letter-spacing:2px;">全市場掃描進度</div>
-        <div style="display:flex;gap:0.5rem;">
-          <button class="btn btn-ghost btn-sm" id="pauseBtn" onclick="toggleScanPause()">⏸ 暫停</button>
-          <button class="btn btn-danger btn-sm" onclick="stopScan()">✕ 停止</button>
-        </div>
-      </div>
-      <div style="background:var(--bg3);border-radius:4px;height:6px;margin-bottom:1rem;overflow:hidden;">
-        <div id="scanBar" style="height:100%;background:var(--accent);border-radius:4px;width:0%;transition:width 0.5s;"></div>
-      </div>
-      <p class="text-sm" id="scanProgress" style="color:var(--text);font-weight:500;">初始化中...</p>
-      <p class="text-xs text-muted mt-1" id="scanDetail">準備開始</p>
-    </div>
-    <div id="partialResults"></div>`;
+    <div class="loading-bar"><div class="loading-bar-inner"></div></div>
+    <p class="text-sm text-muted text-center" style="padding:1rem;">
+      正在從 GAS 讀取今日掃描結果...
+    </p>`;
 
   try {
-    const today = todayStr();
+    // 從 GAS 讀取今日掃描結果
+    const res = await fetch(`${state.gasUrl}?action=getScanResults`);
+    const json = await res.json();
 
-    // ── 大盤過濾 ──
-    updateProgress('檢查大盤狀態...', '抓取加權指數', 2);
-    const indexData = await finmind('TaiwanStockPrice', 'TAIEX', daysAgo(30), today).catch(() => []);
+    if (json.status !== 'ok') throw new Error(json.msg || '讀取失敗');
 
-    if (indexData.length >= 20) {
-      const closes = indexData.map(d => d.close);
-      const ma20 = calcMA(closes, 20);
-      const lastClose = closes[closes.length - 1];
-      const aboveMa = lastClose > ma20;
-      document.getElementById('twseStatus').innerHTML = aboveMa
+    const results = json.data || [];
+
+    if (results.length === 0) {
+      // 同時讀取掃描進度，看 GAS 是否還在跑
+      const progRes = await fetch(`${state.gasUrl}?action=getScanProgress`).catch(() => null);
+      const progJson = progRes ? await progRes.json().catch(() => null) : null;
+      const progress = progJson?.data;
+
+      if (progress && !progress.done && progress.startedAt) {
+        const startTime = new Date(progress.startedAt).toLocaleTimeString('zh-TW');
+        const batchIndex = progress.batchIndex || 0;
+        const total = progress.totalCandidates || 0;
+        const scanned = batchIndex * 50;
+
+        area.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">⏳</div>
+            <p>GAS 掃描進行中<br>
+            開始時間：${startTime}<br>
+            進度：第 ${batchIndex + 1} 批，已掃描約 ${scanned}/${total} 檔<br>
+            <span style="color:var(--text3);font-size:0.82rem;">完成後會自動寄 Email，請稍後再點擊重新整理</span></p>
+            <button class="btn btn-ghost btn-sm" style="margin-top:1rem;" onclick="fetchRecommendations()">↻ 重新整理</button>
+          </div>`;
+      } else {
+        area.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📭</div>
+            <p>今日尚無掃描結果<br>
+            GAS 每天 14:30 自動掃描，掃描完成後結果會顯示在這裡<br>
+            <span style="color:var(--text3);font-size:0.82rem;">你也可以手動觸發 GAS 掃描（在 Apps Script 執行 testScanNow）</span></p>
+          </div>`;
+      }
+      return;
+    }
+
+    // 有結果：更新 state 並顯示
+    state.recommendations = results;
+
+    // 同時嘗試讀取大盤狀態（從進度資料）
+    const progRes2 = await fetch(`${state.gasUrl}?action=getScanProgress`).catch(() => null);
+    const progJson2 = progRes2 ? await progRes2.json().catch(() => null) : null;
+    const progress2 = progJson2?.data;
+
+    // 更新大盤 UI
+    if (progress2?.marketPass != null) {
+      document.getElementById('twseStatus').innerHTML = progress2.marketPass
         ? `<span class="positive">站上月線 ✓</span>`
         : `<span class="negative">跌破月線 ✗</span>`;
-      document.getElementById('twseSub').textContent = `收盤 ${lastClose.toFixed(0)} / 月線 ${ma20?.toFixed(0)}`;
-      scanState.marketPass = aboveMa;
-      scanState.marketReturn5d = indexData.length >= 5
-        ? (closes[closes.length-1] - closes[closes.length-6]) / closes[closes.length-6] : 0;
-    }
-    document.getElementById('marketFilter').innerHTML = scanState.marketPass
-      ? `<span class="positive">通過 ✓</span>` : `<span class="negative">謹慎 ✗</span>`;
-    document.getElementById('marketFilterSub').textContent = scanState.marketPass
-      ? '大盤多頭，可積極選股' : '大盤偏弱，嚴控風險';
-
-    // ── 載入股票名稱 ──
-    updateProgress('載入股票名稱對照表...', '抓取全市場股票清單', 5);
-    if (!state.stockNames || Object.keys(state.stockNames).length < 100) {
-      try {
-        const infoData = await finmindStockInfo();
-        state.stockNames = {};
-        infoData.forEach(d => {
-          const id = d.stock_id || d.StockID;
-          const name = d.stock_name || d.company_name || d.StockName || '';
-          if (id && name) state.stockNames[id] = name;
-        });
-      } catch(e) { state.stockNames = {}; }
+      document.getElementById('marketFilter').innerHTML = progress2.marketPass
+        ? `<span class="positive">通過 ✓</span>`
+        : `<span class="negative">謹慎 ✗</span>`;
+      document.getElementById('marketFilterSub').textContent = progress2.marketPass
+        ? '大盤多頭，可積極選股' : '大盤偏弱，嚴控風險';
+      document.getElementById('twseSub').textContent = progress2.completedAt
+        ? `掃描完成：${progress2.completedAt}` : '─';
     }
 
-    // ══════════════════════════════════════════════
-    // 第一階段：全市場當日資料一次性抓取（1次API）
-    // ══════════════════════════════════════════════
-    updateProgress('第一階段：抓取全市場當日資料...', '一次 API 請求取得所有上市股票', 8);
-
-    let allStocks = [];
-    try {
-      // 不帶 stock_id，一次取得當日所有股票
-      const todayData = await finmindNoId('TaiwanStockPrice', today, today);
-      allStocks = todayData || [];
-    } catch(e) {
-      // fallback：抓近3天確保有資料
-      try {
-        const todayData = await finmindNoId('TaiwanStockPrice', daysAgo(3), today);
-        // 只保留最新一天的資料
-        const dateMap = {};
-        todayData.forEach(d => {
-          if (!dateMap[d.stock_id] || d.date > dateMap[d.stock_id].date) {
-            dateMap[d.stock_id] = d;
-          }
-        });
-        allStocks = Object.values(dateMap);
-      } catch(e2) {
-        throw new Error('無法取得市場資料：' + e2.message);
-      }
-    }
-
-    updateProgress(`第一階段：初篩中... 共 ${allStocks.length} 檔`, '過濾代號、成交量、流動性', 15);
-
-    // 快速初篩條件
-    const phase1Passed = [];
-    for (const d of allStocks) {
-      const id = d.stock_id;
-      if (!id) continue;
-
-      // 排除 ETF、權證、特別股（代號含英文字母）
-      if (/[A-Za-z]/.test(id)) continue;
-      // 只保留4~5碼數字代號（上市櫃個股）
-      if (!/^\d{4,5}$/.test(id)) continue;
-
-      const close = d.close || 0;
-      const vol = d.Trading_Volume || d.volume || 0;
-      const amount = close * vol;
-
-      // 排除：成交金額 < 500萬
-      if (amount < 5000000) continue;
-      // 排除：收盤價 < 5元（殭屍股）
-      if (close < 5) continue;
-      // 排除：成交量為0
-      if (vol === 0) continue;
-
-      // 基本趨勢初篩：收盤 > 開盤（收紅，有初步動能）
-      // 大盤偏弱時放寬此條件
-      const open = d.open || close;
-      const isRed = close >= open;
-      if (!isRed && scanState.marketPass) continue;
-
-      // 依市值粗估分層（用股價 × 成交量估算，不精確但足夠初篩）
-      let tier = 'mid';
-      if (amount > 5e8) tier = 'large';       // 成交額 > 5億 → 大型
-      else if (amount > 5e7) tier = 'mid';    // 成交額 > 5千萬 → 中型
-      else tier = 'small';
-
-      phase1Passed.push({ id, close, vol, amount, tier, open,
-        high: d.max || d.high || close,
-        low: d.min || d.low || close });
-    }
-
-    scanState.candidates = phase1Passed;
-    scanState.phase1Done = true;
-
-    updateProgress(
-      `第一階段完成：${allStocks.length} 檔 → 初篩通過 ${phase1Passed.length} 檔`,
-      `大型 ${phase1Passed.filter(s=>s.tier==='large').length} ／ 中型 ${phase1Passed.filter(s=>s.tier==='mid').length} ／ 小型 ${phase1Passed.filter(s=>s.tier==='small').length}`,
-      20
-    );
-
-    await sleep(500);
-
-    // ══════════════════════════════════════════════
-    // 第二階段：對通過初篩的個股做完整技術分析
-    // ══════════════════════════════════════════════
-    const total2 = phase1Passed.length;
-    const startDate = daysAgo(90);
-    let scanned2 = 0;
-    const results = [];
-
-    for (const candidate of phase1Passed) {
-      // 支援暫停
-      while (scanState.paused) await sleep(500);
-      if (!scanState.running) break;
-
-      scanned2++;
-      const pct = 20 + (scanned2 / total2) * 65;
-      updateProgress(
-        `第二階段：${scanned2}/${total2} | ${candidate.id} ${state.stockNames?.[candidate.id] || ''}`,
-        `已找到 ${results.length} 檔符合條件 | 預估剩餘 ${Math.ceil((total2 - scanned2) * 5 / 60)} 分鐘`,
-        pct
-      );
-
-      try {
-        // 抓90日歷史 OHLCV
-        const ohlcData = await finmind('TaiwanStockPrice', candidate.id, startDate, today);
-        if (!ohlcData || ohlcData.length < 20) continue;
-
-        const volumes = ohlcData.map(d => d.Trading_Volume || d.volume || 0);
-        const closes = ohlcData.map(d => d.close);
-
-        // 排除條件（詳細版）
-        if (shouldExclude(ohlcData, volumes, null)) continue;
-
-        // 籌碼資料
-        let itrustArr = [], foreignArr = [];
-        try {
-          const inst = await finmind('TaiwanStockInstitutionalInvestorsBuySell', candidate.id, daysAgo(15), today);
-          itrustArr = inst.filter(d => d.name === '投信').map(d => d.buy - d.sell);
-          foreignArr = inst.filter(d => d.name === '外資').map(d => d.buy - d.sell);
-        } catch(e) {}
-
-        const atr = calcATR(ohlcData);
-        if (!atr) continue;
-
-        // 法人目標價
-        let analystTarget = null, analystCount = 0, analystUpside = null, analystBoosted = false;
-        try {
-          const consensus = await finmind('TaiwanStockAnalystConsensus', candidate.id, daysAgo(90), today);
-          if (consensus && consensus.length > 0) {
-            const latest = consensus[consensus.length - 1];
-            analystTarget = latest.target_price_median || latest.price_target_mean || null;
-            analystCount = latest.number_of_analysts || consensus.length;
-            const lastClose2 = closes[closes.length - 1];
-            if (analystTarget && lastClose2) {
-              analystUpside = +((analystTarget - lastClose2) / lastClose2 * 100).toFixed(1);
-              if (analystUpside > 15) analystBoosted = true;
-            }
-          }
-        } catch(e) {}
-
-        // 交叉組合判斷
-        const hitCombos = [];
-        const tier = candidate.tier;
-        if (tier === 'small') {
-          if (checkComboF(ohlcData, volumes))                        hitCombos.push({ combo: 'F', base: 4 });
-          if (checkComboD(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'D', base: 5 });
-          if (checkComboA(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'A', base: 4 });
-          if (checkComboB(ohlcData, itrustArr, foreignArr, tier))    hitCombos.push({ combo: 'B', base: 4 });
-          if (checkComboC(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'C', base: 3 });
-          if (checkComboE(ohlcData, volumes))                        hitCombos.push({ combo: 'E', base: 2 });
-        } else {
-          if (checkComboB(ohlcData, itrustArr, foreignArr, tier))    hitCombos.push({ combo: 'B', base: 5 });
-          if (checkComboD(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'D', base: 5 });
-          if (checkComboA(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'A', base: 4 });
-          if (checkComboC(ohlcData, volumes, tier))                  hitCombos.push({ combo: 'C', base: 3 });
-          if (checkComboE(ohlcData, volumes))                        hitCombos.push({ combo: 'E', base: 2 });
-        }
-        if (hitCombos.length === 0) continue;
-
-        const basePriority = Math.max(...hitCombos.map(c => c.base));
-        const crossBonus = hitCombos.length >= 3 ? 2 : hitCombos.length === 2 ? 1 : 0;
-        const crossPriority = Math.min(basePriority + crossBonus, 5);
-        const combos = hitCombos.map(c => c.combo);
-        const combo = combos[0];
-
-        const lastClose = closes[closes.length - 1];
-        const stockReturn5d = closes.length >= 5
-          ? (lastClose - closes[closes.length-6]) / closes[closes.length-6] : 0;
-        const rs = calcRS(stockReturn5d, scanState.marketReturn5d);
-        const atrMult = calcATRMultiplier(combo);
-        const entryPrice = lastClose;
-        const stopLoss = +(entryPrice - atr * atrMult).toFixed(2);
-        const target1 = +(entryPrice + atr * atrMult * 2).toFixed(2);
-        const target2 = +(entryPrice + atr * atrMult * 3).toFixed(2);
-        const chaseLimit = +(entryPrice * 1.02).toFixed(2);
-        if (stopLoss >= entryPrice) continue;
-
-        const finalPriority = analystBoosted ? Math.min(crossPriority + 1, 5) : crossPriority;
-        const suggestedSharesInfo = calcSuggestedShares(finalPriority, entryPrice);
-
-        results.push({
-          id: candidate.id,
-          name: (state.stockNames || {})[candidate.id] || '',
-          tier, combo, combos, priority: finalPriority,
-          basePriority, crossBonus, hitCount: hitCombos.length,
-          entryPrice, stopLoss, target1, target2,
-          atr: +atr.toFixed(2), chaseLimit, rs,
-          itrustBuy: itrustArr.slice(-5).filter(v=>v>0).length,
-          foreignBuy: foreignArr.slice(-3).filter(v=>v>0).length,
-          positionSize: calcPositionSize(finalPriority),
-          suggestedShares: suggestedSharesInfo.shares,
-          suggestedAmount: suggestedSharesInfo.amount,
-          insufficient: suggestedSharesInfo.insufficient,
-          analystTarget, analystCount, analystUpside, analystBoosted
-        });
-
-        // 即時顯示中間結果
-        if (results.length % 3 === 0) {
-          renderPartialResults(results);
-        }
-
-      } catch(e) { /* skip */ }
-
-      // Rate limit 控制：每5檔暫停6秒（維持在 600/hr 以內）
-      if (scanned2 % 5 === 0) await sleep(6000);
-    }
-
-    // ── Gemini 深度分析 ──
-    if (state.geminiKey && results.length > 0 && scanState.running) {
-      updateProgress(`技術面完成，共 ${results.length} 檔 → 開始 Gemini 深度分析...`, '消息面 × 券商目標價 × 基本面', 88);
-      for (let i = 0; i < results.length; i++) {
-        while (scanState.paused) await sleep(500);
-        if (!scanState.running) break;
-        const s = results[i];
-        updateProgress(`Gemini 分析 ${i+1}/${results.length}｜${s.id} ${s.name}`, '消息面 + 券商目標價 + 基本面', 88 + (i/results.length)*10);
-        const [newsData, brokerData, fundData] = await Promise.all([
-          analyzeNews(s.id, s.name),
-          analyzeBrokerTarget(s.id, s.name, s.entryPrice),
-          analyzeFundamentals(s.id, s.name, s.entryPrice)
-        ]);
-        s.newsAnalysis = newsData;
-        s.brokerAnalysis = brokerData;
-        s.fundAnalysis = fundData;
-        const geminiBonus = calcGeminiTotalScore(newsData, brokerData, fundData);
-        s.geminiBonus = geminiBonus;
-        s.geminiTotal = (newsData?.score||0) + (brokerData?.score||0) + (fundData?.score||0);
-        s.priority = Math.max(1, Math.min(5, s.priority + (geminiBonus > 0 ? geminiBonus : 0)));
-        const newSharesInfo = calcSuggestedShares(s.priority, s.entryPrice);
-        s.suggestedShares = newSharesInfo.shares;
-        s.suggestedAmount = newSharesInfo.amount;
-        if ((i+1) % 3 === 0) await sleep(500);
-      }
-    }
-
-    scanState.running = false;
-
-    // 排序
-    results.sort((a, b) =>
-      b.priority - a.priority ||
-      (b.geminiTotal||0) - (a.geminiTotal||0) ||
-      b.rs - a.rs
-    );
-
-    state.recommendations = results;
     saveState();
-
-    updateProgress(`掃描完成！共找到 ${results.length} 檔符合條件`, '', 100);
-    await sleep(800);
-
     renderRecommendations(results);
     populateOrderDropdown(results);
     updateDateDisplay();
 
-    if (results.length === 0) {
-      area.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>今日市場未找到符合條件的個股<br>共掃描 ${phase1Passed.length} 檔通過初篩的個股</p></div>`;
-    }
-
-    if (state.gasUrl && results.length > 0 && state.emailNotify !== false) {
-      sendEmailNotification(results, { marketPass: scanState.marketPass });
-    }
-
-    notify(`✓ 掃描完成，找到 ${results.length} 檔`, 'success');
+    notify(`✓ 讀取成功，共 ${results.length} 檔推薦個股`, 'success');
 
   } catch(e) {
-    scanState.running = false;
-    area.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>掃描失敗：${e.message}<br>請確認 Token 是否正確後重試</p></div>`;
-    notify('掃描失敗：' + e.message, 'error');
+    area.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">⚠️</div>
+        <p>讀取失敗：${e.message}<br>
+        請確認 GAS URL 是否正確，以及 GAS 是否已部署</p>
+      </div>`;
+    notify('讀取失敗：' + e.message, 'error');
   }
 }
-
-function renderPartialResults(results) {
-  const el = document.getElementById('partialResults');
-  if (!el || results.length === 0) return;
-  el.innerHTML = `<div style="font-size:0.8rem;color:var(--text3);font-family:var(--font-mono);padding:0.5rem 0;margin-bottom:0.5rem;">目前已找到 ${results.length} 檔（掃描中...）</div>` +
-    results.slice(0,5).map(s => `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:1rem;font-family:var(--font-mono);font-size:0.82rem;">
-        <span style="font-weight:700;color:var(--text)">${s.id}</span>
-        <span style="color:var(--text2)">${s.name||''}</span>
-        <span style="color:var(--accent)">${'⭐'.repeat(s.priority)}</span>
-        <span style="color:var(--text3)">${s.combos?.join('+')||s.combo}</span>
-        <span style="color:var(--accent);margin-left:auto;">${s.entryPrice}</span>
-      </div>`).join('');
-}
-
-function toggleScanPause() {
-  scanState.paused = !scanState.paused;
-  const btn = document.getElementById('pauseBtn');
-  if (btn) btn.textContent = scanState.paused ? '▶ 繼續' : '⏸ 暫停';
-  notify(scanState.paused ? '掃描已暫停' : '掃描繼續中', 'info');
-}
-
-function stopScan() {
-  if (!confirm('確定要停止掃描？目前已找到的結果會保留。')) return;
-  scanState.running = false;
-  scanState.paused = false;
-  notify('掃描已停止', 'info');
-}
-
 
 // ── Email 通知 ──
 async function sendEmailNotification(results, summary = {}) {
