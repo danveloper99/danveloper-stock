@@ -264,8 +264,14 @@ function scheduleNextBatch(batchIndex) {
 // ══════════════════════════════════════════════
 
 function runPhase1() {
+  if (!CONFIG.FINMIND_TOKEN) {
+    Logger.log('❌ 錯誤：FINMIND_TOKEN 未設定，請在 Code.gs 的 CONFIG 填入 Token');
+    return [];
+  }
+
   const today = getTodayStr();
-  const yesterday = getDaysAgo(3); // 取近3天確保有資料
+  const yesterday = getDaysAgo(3);
+  Logger.log(`Phase1 開始，日期範圍：${yesterday} ~ ${today}，Token 長度：${CONFIG.FINMIND_TOKEN.length}`);
 
   // 一次抓全市場當日資料
   const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&start_date=${yesterday}&token=${CONFIG.FINMIND_TOKEN}`;
@@ -1055,12 +1061,14 @@ function loadSnapshots() {
 function loadConfigFromSheet() {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config');
-    if (!sheet) return;
+    if (!sheet) {
+      Logger.log('Config 工作表不存在，使用 Code.gs 內的 CONFIG 預設值');
+      return; // 直接用 CONFIG 內的值
+    }
     const data = sheet.getDataRange().getValues();
     data.forEach(row => {
       const key = row[0], val = row[1];
       if (key && val !== '' && CONFIG.hasOwnProperty(key)) {
-        // 數字欄位轉型
         if (['BATCH_SIZE','SCAN_TRIGGER_HOUR','SCAN_TRIGGER_MIN','SCAN_INTERVAL_MIN'].includes(key)) {
           CONFIG[key] = parseInt(val) || CONFIG[key];
         } else {
@@ -1068,9 +1076,9 @@ function loadConfigFromSheet() {
         }
       }
     });
-    Logger.log('設定已從 Sheets 載入：' + JSON.stringify(CONFIG));
+    Logger.log('設定已從 Sheets 載入：Token長度=' + (CONFIG.FINMIND_TOKEN || '').length);
   } catch(e) {
-    Logger.log('loadConfigFromSheet 失敗：' + e.message);
+    Logger.log('loadConfigFromSheet 失敗：' + e.message + '，使用預設值');
   }
 }
 
