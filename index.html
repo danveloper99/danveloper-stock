@@ -1539,7 +1539,7 @@ async function triggerGasScan() {
   try {
     const json = await gasFetch(state.gasUrl, { action: 'startScan' });
     if (json.status === 'ok') {
-      notify('✓ GAS 掃描已啟動！約 75 分鐘後完成，完成後寄 Email 通知你', 'success');
+      notify('✓ GAS 掃描已排程！1 分鐘後開始執行，約 75 分鐘後完成並寄 Email 通知你', 'success');
       btn.textContent = '✓ 已觸發';
       setTimeout(() => {
         btn.textContent = '⚡ 觸發 GAS 掃描';
