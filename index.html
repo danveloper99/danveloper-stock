@@ -1223,11 +1223,7 @@ function loadState() {
 async function syncToGAS() {
   if (!state.gasUrl) return;
   try {
-    await fetch(state.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'saveState', data: state })
-    });
+    await gasFetch(state.gasUrl, { action: 'saveState', data: state });
   } catch(e) {}
 }
 
@@ -1310,22 +1306,17 @@ async function saveSettings() {
     btn.textContent = '同步中...';
     btn.disabled = true;
     try {
-      const res = await fetch(state.gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'saveConfig',
-          config: {
-            FINMIND_TOKEN: state.token,
-            GEMINI_KEY: state.geminiKey,
-            NOTIFY_EMAIL: state.notifyEmail,
-            BATCH_SIZE: state.batchSize,
-            SCAN_TRIGGER_HOUR: state.scanHour,
-            SCAN_TRIGGER_MIN: state.scanMin,
-          }
-        })
+      const json = await gasFetch(state.gasUrl, {
+        action: 'saveConfig',
+        config: {
+          FINMIND_TOKEN: state.token,
+          GEMINI_KEY: state.geminiKey,
+          NOTIFY_EMAIL: state.notifyEmail,
+          BATCH_SIZE: state.batchSize,
+          SCAN_TRIGGER_HOUR: state.scanHour,
+          SCAN_TRIGGER_MIN: state.scanMin,
+        }
       });
-      const json = await res.json();
       if (json.status === 'ok') {
         closeSettings();
         updateUI();
@@ -1518,6 +1509,20 @@ async function callGemini(prompt, useSearch = false) {
 // 從 GAS 讀取掃描結果
 // ═══════════════════════════════════════════════════
 
+// GAS fetch 工具函式（處理 302 重導向和跨域問題）
+async function gasFetch(url, body) {
+  // GAS Web App 會 302 重導向，需要 redirect:'follow'
+  // Content-Type 用 text/plain 避免觸發 CORS preflight
+  const res = await fetch(url, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
 async function triggerGasScan() {
   if (!state.gasUrl) {
     notify('請先在設定中填入 GAS URL', 'error');
@@ -1532,17 +1537,10 @@ async function triggerGasScan() {
   btn.disabled = true;
 
   try {
-    const res = await fetch(state.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'startScan' })
-    });
-    const json = await res.json();
-
+    const json = await gasFetch(state.gasUrl, { action: 'startScan' });
     if (json.status === 'ok') {
       notify('✓ GAS 掃描已啟動！約 75 分鐘後完成，完成後寄 Email 通知你', 'success');
       btn.textContent = '✓ 已觸發';
-      // 5 分鐘後恢復按鈕
       setTimeout(() => {
         btn.textContent = '⚡ 觸發 GAS 掃描';
         btn.disabled = false;
