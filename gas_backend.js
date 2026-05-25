@@ -265,40 +265,49 @@ function scheduleNextBatch(batchIndex) {
 
 function runPhase1() {
   if (!CONFIG.FINMIND_TOKEN) {
-    Logger.log('❌ 錯誤：FINMIND_TOKEN 未設定，請在 Code.gs 的 CONFIG 填入 Token');
+    Logger.log('❌ 錯誤：FINMIND_TOKEN 未設定，請在設定頁填入後同步至 GAS');
     return [];
   }
 
   const today = getTodayStr();
-  const yesterday = getDaysAgo(3);
-  Logger.log(`Phase1 開始，日期範圍：${yesterday} ~ ${today}，Token 長度：${CONFIG.FINMIND_TOKEN.length}`);
+  const start = getDaysAgo(7); // 抓7天，確保跨假日也能拿到最近交易日資料
+  Logger.log(`Phase1 開始，Token 長度：${CONFIG.FINMIND_TOKEN.length}，抓取範圍：${start} ~ ${today}`);
 
-  // 一次抓全市場當日資料
-  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&start_date=${yesterday}&token=${CONFIG.FINMIND_TOKEN}`;
+  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`;
   const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  const responseCode = res.getResponseCode();
+  Logger.log(`FinMind API 回應碼：${responseCode}`);
+
   const json = JSON.parse(res.getContentText());
 
   if (json.status !== 200) {
-    Logger.log('FinMind API 錯誤：' + json.msg);
+    Logger.log('❌ FinMind API 錯誤：' + (json.msg || JSON.stringify(json)));
     return [];
   }
 
   const allData = json.data || [];
+  Logger.log(`API 回傳筆數：${allData.length}`);
 
-  // 只保留最新日期的資料
+  if (allData.length === 0) {
+    Logger.log('❌ 無資料，可能是假日或 Token 問題');
+    return [];
+  }
+
+  // 找最新交易日（不一定是今天，可能是上個交易日）
+  let latestDate = '';
+  allData.forEach(d => { if (d.date > latestDate) latestDate = d.date; });
+  Logger.log(`最新交易日：${latestDate}`);
+
+  // 只保留最新交易日的資料
   const dateMap = {};
   allData.forEach(d => {
-    if (!dateMap[d.stock_id] || d.date > dateMap[d.stock_id].date) {
-      dateMap[d.stock_id] = d;
-    }
+    if (d.date === latestDate) dateMap[d.stock_id] = d;
   });
 
   const passed = [];
   Object.values(dateMap).forEach(d => {
     const id = d.stock_id;
     if (!id) return;
-
-    // 排除非個股代號
     if (/[A-Za-z]/.test(id)) return;
     if (!/^\d{4,5}$/.test(id)) return;
 
@@ -307,23 +316,20 @@ function runPhase1() {
     const vol = d.Trading_Volume || 0;
     const amount = close * vol;
 
-    if (amount < 5000000) return;  // 成交金額 < 500萬
-    if (close < 5) return;          // 股價 < 5元
+    if (amount < 5000000) return;
+    if (close < 5) return;
     if (vol === 0) return;
+    if (close < open) return; // 收紅初篩
 
-    // 收紅初篩
-    if (close < open) return;
-
-    // 市值分層
     let tier = 'mid';
     if (amount > 5e8) tier = 'large';
     else if (amount < 5e7) tier = 'small';
 
     passed.push({ id, close, open, vol, amount, tier,
-      high: d.max || close, low: d.min || close });
+      high: d.max || close, low: d.min || close, date: latestDate });
   });
 
-  Logger.log(`第一階段：${Object.keys(dateMap).length} 檔 → ${passed.length} 檔通過`);
+  Logger.log(`第一階段：${Object.keys(dateMap).length} 檔 → ${passed.length} 檔通過初篩（交易日：${latestDate}）`);
   return passed;
 }
 
