@@ -198,7 +198,6 @@ function runScanBatch() {
 
   if (hasMore) {
     freshProgress.batchIndex = nextBatch;
-    // 只存必要欄位，避免 JSON 過大
     freshProgress.partialResults = merged.map(r => ({
       id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
       priority: r.priority, hitCount: r.hitCount,
@@ -210,54 +209,103 @@ function runScanBatch() {
     scheduleNextBatch(nextBatch);
     Logger.log(`第 ${batchIndex + 1} 批完成，已找到 ${merged.length} 檔，排程第 ${nextBatch + 1} 批`);
   } else {
-    Logger.log(`所有批次完成，共找到 ${merged.length} 檔符合條件，開始收尾...`);
+    // 全部掃描完成：把結果存入 progress，排程獨立的收尾 Trigger
+    Logger.log(`所有批次掃描完成，共 ${merged.length} 檔，排程收尾作業...`);
+    freshProgress.batchIndex = nextBatch;
+    freshProgress.scanDone = true; // 標記掃描完成，等待收尾
+    freshProgress.partialResults = merged.map(r => ({
+      id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
+      priority: r.priority, hitCount: r.hitCount,
+      entryPrice: r.entryPrice, stopLoss: r.stopLoss,
+      target1: r.target1, target2: r.target2, atr: r.atr,
+      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
+    }));
+    saveScanProgress(freshProgress);
 
-    try {
-      merged.sort((a, b) => (b.priority - a.priority) || (b.rs - a.rs));
-    } catch(e) { Logger.log('排序失敗：' + e.message); }
-
-    // Gemini AI 深度分析
-    if (CONFIG.GEMINI_KEY && merged.length > 0) {
-      Logger.log(`開始 Gemini 分析 ${merged.length} 檔...`);
-      try { runGeminiAnalysis(merged); } catch(e) { Logger.log('Gemini 分析失敗：' + e.message); }
-      try {
-        merged.sort((a, b) =>
-          (b.priority - a.priority) ||
-          ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
-          (b.rs - a.rs)
-        );
-      } catch(e) {}
-      Logger.log('Gemini 分析完成');
-    }
-
-    // 儲存最終結果
-    try {
-      saveScanResultsToSheet(merged);
-      Logger.log('ScanResults 已儲存');
-    } catch(e) {
-      Logger.log('saveScanResultsToSheet 失敗：' + e.message);
-    }
-
-    try {
-      markScanDone(merged, false);
-    } catch(e) {
-      Logger.log('markScanDone 失敗：' + e.message);
-    }
-
-    // 寄 Email
-    try {
-      sendScanEmail(merged, {
-        marketPass: freshProgress.marketPass,
-        totalScanned: freshCandidates.length,
-        completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
-      });
-      Logger.log('Email 已寄出');
-    } catch(e) {
-      Logger.log('sendScanEmail 失敗：' + e.message);
-    }
-
-    Logger.log('=== 掃描全部完成 ===');
+    // 1分鐘後執行收尾（儲存結果 + Gemini 分析 + Email）
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === 'finalizeScan') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('finalizeScan').timeBased().after(60 * 1000).create();
+    Logger.log('已排程 finalizeScan，1 分鐘後執行');
   }
+}
+
+/**
+ * 收尾函式：掃描全部完成後由 Trigger 獨立執行
+ * 負責：Gemini 分析 → 儲存結果 → 寄 Email
+ */
+function finalizeScan() {
+  Logger.log('=== finalizeScan 開始 ===');
+  loadConfigFromSheet();
+
+  const progress = loadScanProgress();
+  if (!progress || !progress.scanDone) {
+    Logger.log('無待收尾的掃描，跳過');
+    return;
+  }
+
+  let merged = progress.partialResults || [];
+  const totalScanned = progress.totalCandidates || 0;
+  Logger.log(`收尾：共 ${merged.length} 檔，開始排序`);
+
+  // 排序
+  merged.sort((a, b) => (b.priority - a.priority) || ((b.rs || 0) - (a.rs || 0)));
+
+  // Gemini AI 深度分析
+  if (CONFIG.GEMINI_KEY && merged.length > 0) {
+    Logger.log(`開始 Gemini 分析 ${merged.length} 檔...`);
+    try {
+      runGeminiAnalysis(merged);
+      merged.sort((a, b) =>
+        (b.priority - a.priority) ||
+        ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
+        ((b.rs || 0) - (a.rs || 0))
+      );
+      Logger.log('Gemini 分析完成');
+    } catch(e) {
+      Logger.log('Gemini 分析失敗：' + e.message);
+    }
+  }
+
+  // 載入股票名稱補充到結果
+  try {
+    const names = loadStockNames();
+    merged.forEach(r => { if (!r.name) r.name = names[r.id] || ''; });
+  } catch(e) {}
+
+  // 儲存最終結果
+  try {
+    saveScanResultsToSheet(merged);
+    Logger.log(`ScanResults 已儲存，共 ${merged.length} 筆`);
+  } catch(e) {
+    Logger.log('saveScanResultsToSheet 失敗：' + e.message);
+  }
+
+  // 更新進度為完成
+  try {
+    progress.done = true;
+    progress.resultCount = merged.length;
+    progress.completedAt = new Date().toISOString();
+    progress.partialResults = []; // 清空節省空間
+    saveScanProgress(progress);
+  } catch(e) {
+    Logger.log('markScanDone 失敗：' + e.message);
+  }
+
+  // 寄 Email
+  try {
+    sendScanEmail(merged, {
+      marketPass: progress.marketPass,
+      totalScanned,
+      completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+    });
+    Logger.log('Email 已寄出');
+  } catch(e) {
+    Logger.log('sendScanEmail 失敗：' + e.message);
+  }
+
+  Logger.log('=== finalizeScan 完成 ===');
 }
 
 /**
