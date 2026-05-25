@@ -233,7 +233,7 @@ function runScanBatch() {
 
 /**
  * 收尾函式：掃描全部完成後由 Trigger 獨立執行
- * 負責：Gemini 分析 → 儲存結果 → 寄 Email
+ * 若 Gemini 分析檔數過多，自動分批接力
  */
 function finalizeScan() {
   Logger.log('=== finalizeScan 開始 ===');
@@ -247,32 +247,67 @@ function finalizeScan() {
 
   let merged = progress.partialResults || [];
   const totalScanned = progress.totalCandidates || 0;
-  Logger.log(`收尾：共 ${merged.length} 檔，開始排序`);
 
   // 排序
   merged.sort((a, b) => (b.priority - a.priority) || ((b.rs || 0) - (a.rs || 0)));
 
-  // Gemini AI 深度分析
+  // Gemini 分析：動態分批
+  // 每批最多 15 檔（15 × 6秒 = 90秒，安全範圍內）
+  const GEMINI_BATCH = 15;
   if (CONFIG.GEMINI_KEY && merged.length > 0) {
-    Logger.log(`開始 Gemini 分析 ${merged.length} 檔...`);
-    try {
-      runGeminiAnalysis(merged);
+    const geminiOffset = progress.geminiOffset || 0; // 目前跑到第幾檔
+
+    if (geminiOffset < merged.length) {
+      const batchEnd = Math.min(geminiOffset + GEMINI_BATCH, merged.length);
+      const batchSlice = merged.slice(geminiOffset, batchEnd);
+
+      Logger.log(`Gemini 分析 ${geminiOffset + 1}~${batchEnd} / ${merged.length} 檔`);
+      try {
+        runGeminiAnalysis(batchSlice);
+        // 把分析結果寫回 merged
+        batchSlice.forEach((r, i) => { merged[geminiOffset + i] = r; });
+      } catch(e) {
+        Logger.log('Gemini 分析失敗：' + e.message);
+      }
+
+      const nextOffset = batchEnd;
+      progress.partialResults = merged.map(r => ({
+        id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
+        priority: r.priority, hitCount: r.hitCount,
+        entryPrice: r.entryPrice, stopLoss: r.stopLoss,
+        target1: r.target1, target2: r.target2, atr: r.atr,
+        itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs,
+        geminiTotal: r.geminiTotal, geminiBonus: r.geminiBonus,
+        newsAnalysis: r.newsAnalysis, brokerAnalysis: r.brokerAnalysis, fundAnalysis: r.fundAnalysis
+      }));
+      progress.geminiOffset = nextOffset;
+      saveScanProgress(progress);
+
+      if (nextOffset < merged.length) {
+        // 還有剩，繼續排程 finalizeScan
+        ScriptApp.getProjectTriggers().forEach(t => {
+          if (t.getHandlerFunction() === 'finalizeScan') ScriptApp.deleteTrigger(t);
+        });
+        ScriptApp.newTrigger('finalizeScan').timeBased().after(90 * 1000).create();
+        Logger.log(`Gemini 分析未完，排程繼續（剩 ${merged.length - nextOffset} 檔），90 秒後繼續`);
+        return; // 先結束，讓下一批繼續
+      }
+
+      Logger.log('Gemini 分析全部完成');
+      // 重新排序（加入 Gemini 分數後）
       merged.sort((a, b) =>
         (b.priority - a.priority) ||
         ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
         ((b.rs || 0) - (a.rs || 0))
       );
-      Logger.log('Gemini 分析完成');
-    } catch(e) {
-      Logger.log('Gemini 分析失敗：' + e.message);
     }
   }
 
-  // 載入股票名稱補充到結果
+  // 載入股票名稱
   try {
     const names = loadStockNames();
     merged.forEach(r => { if (!r.name) r.name = names[r.id] || ''; });
-  } catch(e) {}
+  } catch(e) { Logger.log('載入股票名稱失敗：' + e.message); }
 
   // 儲存最終結果
   try {
@@ -287,10 +322,11 @@ function finalizeScan() {
     progress.done = true;
     progress.resultCount = merged.length;
     progress.completedAt = new Date().toISOString();
-    progress.partialResults = []; // 清空節省空間
+    progress.partialResults = [];
+    progress.geminiOffset = 0;
     saveScanProgress(progress);
   } catch(e) {
-    Logger.log('markScanDone 失敗：' + e.message);
+    Logger.log('標記完成失敗：' + e.message);
   }
 
   // 寄 Email
@@ -305,7 +341,7 @@ function finalizeScan() {
     Logger.log('sendScanEmail 失敗：' + e.message);
   }
 
-  Logger.log('=== finalizeScan 完成 ===');
+  Logger.log('=== finalizeScan 全部完成 ===');
 }
 
 /**
