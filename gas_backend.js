@@ -96,10 +96,17 @@ function doPost(e) {
     }
 
     if (action === 'startScan') {
-      // 網頁手動觸發 GAS 掃描
+      // 載入最新設定
+      loadConfigFromSheet();
+      // 重置進度
       initScanProgress();
-      scheduleNextBatch(0);
-      return jsonResponse({ status: 'ok', msg: '掃描已啟動，完成後將寄送 Email' });
+      // 設定 1 分鐘後觸發第一批（讓 doPost 先結束，避免逾時）
+      ScriptApp.getProjectTriggers().forEach(t => {
+        if (t.getHandlerFunction() === 'runScanBatch') ScriptApp.deleteTrigger(t);
+      });
+      ScriptApp.newTrigger('runScanBatch').timeBased().after(60 * 1000).create();
+      Logger.log('startScan：進度已初始化，1 分鐘後開始第一批');
+      return jsonResponse({ status: 'ok', msg: '掃描已排程，1 分鐘後開始執行，完成後寄 Email 通知' });
     }
 
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
@@ -140,6 +147,7 @@ function dailyScanStart() {
  * 接力觸發的入口（由上一批的 Trigger 呼叫）
  */
 function runScanBatch() {
+  loadConfigFromSheet(); // 每批都重新讀取最新設定
   const progress = loadScanProgress();
   if (!progress || progress.done) {
     Logger.log('掃描已完成或無進度，跳過');
