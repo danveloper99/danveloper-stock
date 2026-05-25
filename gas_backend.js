@@ -264,72 +264,76 @@ function scheduleNextBatch(batchIndex) {
 // ══════════════════════════════════════════════
 
 function runPhase1() {
-  if (!CONFIG.FINMIND_TOKEN) {
-    Logger.log('❌ 錯誤：FINMIND_TOKEN 未設定，請在設定頁填入後同步至 GAS');
-    return [];
+  Logger.log('Phase1 開始，使用 TWSE Open API 抓全市場當日資料');
+
+  // TWSE Open API：不需要 Token，免費，一次回傳全市場
+  // 上市股票
+  const twseUrl = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
+  // 上櫃股票
+  const tpexUrl = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes';
+
+  const allData = [];
+
+  try {
+    const res1 = UrlFetchApp.fetch(twseUrl, { muteHttpExceptions: true });
+    if (res1.getResponseCode() === 200) {
+      const data1 = JSON.parse(res1.getContentText());
+      allData.push(...(Array.isArray(data1) ? data1 : []));
+      Logger.log(`TWSE 上市：${allData.length} 筆`);
+    }
+  } catch(e) {
+    Logger.log('TWSE API 失敗：' + e.message);
   }
 
-  const today = getTodayStr();
-  const start = getDaysAgo(7); // 抓7天，確保跨假日也能拿到最近交易日資料
-  Logger.log(`Phase1 開始，Token 長度：${CONFIG.FINMIND_TOKEN.length}，抓取範圍：${start} ~ ${today}`);
-
-  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`;
-  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  const responseCode = res.getResponseCode();
-  Logger.log(`FinMind API 回應碼：${responseCode}`);
-
-  const json = JSON.parse(res.getContentText());
-
-  if (json.status !== 200) {
-    Logger.log('❌ FinMind API 錯誤：' + (json.msg || JSON.stringify(json)));
-    return [];
+  try {
+    const res2 = UrlFetchApp.fetch(tpexUrl, { muteHttpExceptions: true });
+    if (res2.getResponseCode() === 200) {
+      const data2 = JSON.parse(res2.getContentText());
+      const tpexData = Array.isArray(data2) ? data2 : [];
+      allData.push(...tpexData);
+      Logger.log(`TPEx 上櫃：${tpexData.length} 筆，合計：${allData.length} 筆`);
+    }
+  } catch(e) {
+    Logger.log('TPEx API 失敗：' + e.message);
   }
-
-  const allData = json.data || [];
-  Logger.log(`API 回傳筆數：${allData.length}`);
 
   if (allData.length === 0) {
-    Logger.log('❌ 無資料，可能是假日或 Token 問題');
+    Logger.log('❌ 無資料，可能今天休市');
     return [];
   }
 
-  // 找最新交易日（不一定是今天，可能是上個交易日）
-  let latestDate = '';
-  allData.forEach(d => { if (d.date > latestDate) latestDate = d.date; });
-  Logger.log(`最新交易日：${latestDate}`);
-
-  // 只保留最新交易日的資料
-  const dateMap = {};
-  allData.forEach(d => {
-    if (d.date === latestDate) dateMap[d.stock_id] = d;
-  });
-
   const passed = [];
-  Object.values(dateMap).forEach(d => {
-    const id = d.stock_id;
+
+  allData.forEach(d => {
+    // TWSE 欄位：Code, Name, TradeVolume, TradeValue, OpeningPrice, HighestPrice, LowestPrice, ClosingPrice, Change, Transaction
+    // TPEx 欄位：SecuritiesCompanyCode, CompanyName, Close, Change, Open, High, Low, Volumn, TotalValue
+    const id = d.Code || d.SecuritiesCompanyCode || '';
     if (!id) return;
     if (/[A-Za-z]/.test(id)) return;
     if (!/^\d{4,5}$/.test(id)) return;
 
-    const close = d.close || 0;
-    const open = d.open || close;
-    const vol = d.Trading_Volume || 0;
-    const amount = close * vol;
+    const close = parseFloat(d.ClosingPrice || d.Close || 0);
+    const open  = parseFloat(d.OpeningPrice || d.Open || close);
+    const high  = parseFloat(d.HighestPrice || d.High || close);
+    const low   = parseFloat(d.LowestPrice  || d.Low  || close);
+    // 成交量（TWSE 用千股，TPEx 用張）
+    const volRaw = d.TradeVolume || d.Volumn || '0';
+    const vol = parseInt(String(volRaw).replace(/,/g, '')) || 0;
+    const amount = parseFloat(String(d.TradeValue || d.TotalValue || '0').replace(/,/g, '')) || (close * vol);
 
-    if (amount < 5000000) return;
-    if (close < 5) return;
+    if (!close || close < 5) return;
     if (vol === 0) return;
+    if (amount < 5000000) return;
     if (close < open) return; // 收紅初篩
 
     let tier = 'mid';
     if (amount > 5e8) tier = 'large';
     else if (amount < 5e7) tier = 'small';
 
-    passed.push({ id, close, open, vol, amount, tier,
-      high: d.max || close, low: d.min || close, date: latestDate });
+    passed.push({ id, close, open, high, low, vol, amount, tier });
   });
 
-  Logger.log(`第一階段：${Object.keys(dateMap).length} 檔 → ${passed.length} 檔通過初篩（交易日：${latestDate}）`);
+  Logger.log(`第一階段：${allData.length} 檔 → ${passed.length} 檔通過初篩`);
   return passed;
 }
 
