@@ -114,6 +114,13 @@ function jsonResponse(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// 處理 CORS preflight（OPTIONS 請求）
+function doOptions(e) {
+  return ContentService
+    .createTextOutput('')
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+
 // ══════════════════════════════════════════════
 // 全市場掃描主流程（接力執行）
 // ══════════════════════════════════════════════
