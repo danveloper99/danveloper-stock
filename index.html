@@ -862,7 +862,25 @@
       <div class="date-badge" id="todayDate">─</div>
       <button class="btn btn-primary btn-sm" onclick="fetchRecommendations()">🔄 讀取今日選股</button>
       <button class="btn btn-ghost btn-sm" onclick="triggerGasScan()" id="triggerBtn" title="通知 GAS 立刻開始掃描全市場，完成後寄 Email 通知你">⚡ 觸發 GAS 掃描</button>
+      <button class="btn btn-ghost btn-sm" onclick="checkScanProgress()" id="progressBtn">📡 查看掃描進度</button>
     </div>
+  </div>
+
+  <!-- 掃描進度顯示區 -->
+  <div id="scanProgressPanel" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+      <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:2px;">📡 GAS 掃描進度</div>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <span id="progressAutoRefresh" style="font-size:0.75rem;color:var(--text3);font-family:var(--font-mono);"></span>
+        <button class="btn btn-ghost btn-sm" onclick="stopProgressAutoRefresh()" id="stopRefreshBtn" style="display:none;">■ 停止自動更新</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('scanProgressPanel').style.display='none';stopProgressAutoRefresh();">✕</button>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border-radius:4px;height:8px;margin-bottom:0.8rem;overflow:hidden;">
+      <div id="gasScanBar" style="height:100%;background:var(--accent);border-radius:4px;width:0%;transition:width 0.5s;"></div>
+    </div>
+    <div id="gasScanStatus" style="font-size:0.88rem;color:var(--text);font-weight:500;margin-bottom:0.4rem;">讀取中...</div>
+    <div id="gasScanDetail" style="font-size:0.8rem;color:var(--text2);line-height:1.6;"></div>
   </div>
 
   <!-- Market condition -->
@@ -1508,6 +1526,93 @@ async function callGemini(prompt, useSearch = false) {
 // ═══════════════════════════════════════════════════
 // 從 GAS 讀取掃描結果
 // ═══════════════════════════════════════════════════
+
+// ── 掃描進度查看 ──
+let _progressTimer = null;
+
+async function checkScanProgress() {
+  if (!state.gasUrl) {
+    notify('請先在設定中填入 GAS URL', 'error');
+    return;
+  }
+
+  const panel = document.getElementById('scanProgressPanel');
+  panel.style.display = 'block';
+  document.getElementById('gasScanStatus').textContent = '讀取中...';
+
+  await refreshScanProgress();
+
+  // 若掃描進行中，每 30 秒自動更新
+  if (!_progressTimer) {
+    _progressTimer = setInterval(async () => {
+      const progress = await refreshScanProgress();
+      if (!progress || progress.done) stopProgressAutoRefresh();
+    }, 30000);
+    document.getElementById('stopRefreshBtn').style.display = '';
+    document.getElementById('progressAutoRefresh').textContent = '每 30 秒自動更新';
+  }
+}
+
+async function refreshScanProgress() {
+  try {
+    const res = await fetch(`${state.gasUrl}?action=getScanProgress`);
+    const json = await res.json();
+    const p = json.data;
+
+    const bar = document.getElementById('gasScanBar');
+    const status = document.getElementById('gasScanStatus');
+    const detail = document.getElementById('gasScanDetail');
+
+    if (!p || (!p.startedAt && !p.candidates?.length)) {
+      status.textContent = '目前沒有進行中的掃描';
+      detail.textContent = '點「⚡ 觸發 GAS 掃描」開始新的掃描';
+      bar.style.width = '0%';
+      return p;
+    }
+
+    const total = p.totalCandidates || 0;
+    const batchIndex = p.batchIndex || 0;
+    const scanned = Math.min(batchIndex * (CONFIG.BATCH_SIZE || 50), total);
+    const pct = total > 0 ? Math.round(scanned / total * 100) : (p.done ? 100 : 5);
+    bar.style.width = pct + '%';
+
+    const startTime = p.startedAt
+      ? new Date(p.startedAt).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'})
+      : '─';
+    const found = (p.partialResults || []).length;
+
+    if (p.done) {
+      bar.style.background = 'var(--green)';
+      status.textContent = `✅ 掃描完成！共找到 ${p.resultCount || found} 檔符合條件`;
+      detail.innerHTML = `完成時間：${p.completedAt ? new Date(p.completedAt).toLocaleTimeString('zh-TW') : '─'}<br>點「🔄 讀取今日選股」查看結果`;
+      stopProgressAutoRefresh();
+    } else {
+      bar.style.background = 'var(--accent)';
+      status.textContent = `⏳ 掃描進行中 — 第 ${batchIndex + 1} 批 | 已掃描約 ${scanned}/${total} 檔`;
+      const remaining = total > 0 ? Math.ceil((total - scanned) / (CONFIG.BATCH_SIZE || 50)) * 6 : '─';
+      detail.innerHTML = [
+        `開始時間：${startTime}`,
+        `初篩通過：${total} 檔候選個股`,
+        `目前進度：${pct}%（已掃描 ${scanned} 檔）`,
+        `目前已找到：${found} 檔符合技術條件`,
+        `預估剩餘：約 ${remaining} 分鐘`,
+      ].join('<br>');
+    }
+    return p;
+  } catch(e) {
+    document.getElementById('gasScanStatus').textContent = '讀取失敗：' + e.message;
+    return null;
+  }
+}
+
+function stopProgressAutoRefresh() {
+  if (_progressTimer) {
+    clearInterval(_progressTimer);
+    _progressTimer = null;
+  }
+  document.getElementById('stopRefreshBtn').style.display = 'none';
+  document.getElementById('progressAutoRefresh').textContent = '';
+}
 
 // GAS fetch 工具函式（處理 302 重導向和跨域問題）
 async function gasFetch(url, body) {
