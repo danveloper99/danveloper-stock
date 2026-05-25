@@ -1572,7 +1572,8 @@ async function refreshScanProgress() {
 
     const total = p.totalCandidates || 0;
     const batchIndex = p.batchIndex || 0;
-    const scanned = Math.min(batchIndex * (CONFIG.BATCH_SIZE || 50), total);
+    const batchSize = state.batchSize || 50;
+    const scanned = Math.min(batchIndex * batchSize, total);
     const pct = total > 0 ? Math.round(scanned / total * 100) : (p.done ? 100 : 5);
     bar.style.width = pct + '%';
 
@@ -1589,7 +1590,7 @@ async function refreshScanProgress() {
     } else {
       bar.style.background = 'var(--accent)';
       status.textContent = `⏳ 掃描進行中 — 第 ${batchIndex + 1} 批 | 已掃描約 ${scanned}/${total} 檔`;
-      const remaining = total > 0 ? Math.ceil((total - scanned) / (CONFIG.BATCH_SIZE || 50)) * 6 : '─';
+      const remaining = total > 0 ? Math.ceil((total - scanned) / batchSize) * 6 : '─';
       detail.innerHTML = [
         `開始時間：${startTime}`,
         `初篩通過：${total} 檔候選個股`,
