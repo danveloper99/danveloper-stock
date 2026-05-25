@@ -197,44 +197,66 @@ function runScanBatch() {
   const hasMore = freshEnd < freshCandidates.length;
 
   if (hasMore) {
-    // 還有下一批：更新進度，設定接力 Trigger
     freshProgress.batchIndex = nextBatch;
-    freshProgress.partialResults = merged;
+    // 只存必要欄位，避免 JSON 過大
+    freshProgress.partialResults = merged.map(r => ({
+      id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
+      priority: r.priority, hitCount: r.hitCount,
+      entryPrice: r.entryPrice, stopLoss: r.stopLoss,
+      target1: r.target1, target2: r.target2, atr: r.atr,
+      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
+    }));
     saveScanProgress(freshProgress);
     scheduleNextBatch(nextBatch);
     Logger.log(`第 ${batchIndex + 1} 批完成，已找到 ${merged.length} 檔，排程第 ${nextBatch + 1} 批`);
   } else {
-    // 全部完成
-    Logger.log(`所有批次完成，共找到 ${merged.length} 檔符合條件`);
+    Logger.log(`所有批次完成，共找到 ${merged.length} 檔符合條件，開始收尾...`);
 
-    // 排序
-    merged.sort((a, b) => (b.priority - a.priority) || (b.rs - a.rs));
+    try {
+      merged.sort((a, b) => (b.priority - a.priority) || (b.rs - a.rs));
+    } catch(e) { Logger.log('排序失敗：' + e.message); }
 
-    // Gemini AI 深度分析（只對技術面通過的個股）
+    // Gemini AI 深度分析
     if (CONFIG.GEMINI_KEY && merged.length > 0) {
       Logger.log(`開始 Gemini 分析 ${merged.length} 檔...`);
-      runGeminiAnalysis(merged);
-      // 重新排序（加入 Gemini 加成後優先級可能改變）
-      merged.sort((a, b) =>
-        (b.priority - a.priority) ||
-        ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
-        (b.rs - a.rs)
-      );
+      try { runGeminiAnalysis(merged); } catch(e) { Logger.log('Gemini 分析失敗：' + e.message); }
+      try {
+        merged.sort((a, b) =>
+          (b.priority - a.priority) ||
+          ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
+          (b.rs - a.rs)
+        );
+      } catch(e) {}
       Logger.log('Gemini 分析完成');
     }
 
     // 儲存最終結果
-    saveScanResultsToSheet(merged);
-    markScanDone(merged, false);
+    try {
+      saveScanResultsToSheet(merged);
+      Logger.log('ScanResults 已儲存');
+    } catch(e) {
+      Logger.log('saveScanResultsToSheet 失敗：' + e.message);
+    }
+
+    try {
+      markScanDone(merged, false);
+    } catch(e) {
+      Logger.log('markScanDone 失敗：' + e.message);
+    }
 
     // 寄 Email
-    sendScanEmail(merged, {
-      marketPass: freshProgress.marketPass,
-      totalScanned: freshCandidates.length,
-      completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
-    });
+    try {
+      sendScanEmail(merged, {
+        marketPass: freshProgress.marketPass,
+        totalScanned: freshCandidates.length,
+        completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+      });
+      Logger.log('Email 已寄出');
+    } catch(e) {
+      Logger.log('sendScanEmail 失敗：' + e.message);
+    }
 
-    Logger.log('=== 掃描全部完成，Email 已寄出 ===');
+    Logger.log('=== 掃描全部完成 ===');
   }
 }
 
