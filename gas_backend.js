@@ -260,9 +260,8 @@ function finalizeScan() {
   // 排序
   merged.sort((a, b) => (b.priority - a.priority) || ((b.rs || 0) - (a.rs || 0)));
 
-  // Gemini 分析：動態分批
-  // 每批最多 15 檔（15 × 6秒 = 90秒，安全範圍內）
-  const GEMINI_BATCH = 15;
+  // Gemini 分析：動態分批，每批最多 20 檔（每檔1次，約20秒，安全範圍內）
+  const GEMINI_BATCH = 20;
   if (CONFIG.GEMINI_KEY && merged.length > 0) {
     const geminiOffset = progress.geminiOffset || 0; // 目前跑到第幾檔
 
@@ -460,41 +459,89 @@ function runPhase1() {
 function runGeminiAnalysis(results) {
   const names = loadStockNames();
 
-  results.forEach((r, i) => {
+  // 只分析優先級 4 星以上的個股，節省額度
+  const highPriority = results.filter(r => r.priority >= 4);
+  Logger.log(`Gemini 分析：共 ${results.length} 檔，其中 ${highPriority.length} 檔優先級 ≥ 4 星需要分析`);
+
+  highPriority.forEach((r, i) => {
     try {
-      Logger.log(`Gemini 分析 ${i + 1}/${results.length}: ${r.id}`);
+      Logger.log(`Gemini 分析 ${i + 1}/${highPriority.length}: ${r.id}`);
       const name = names[r.id] || r.id;
 
-      // 三項分析
-      const news = geminiAnalyzeNews(r.id, name);
-      const broker = geminiAnalyzeBroker(r.id, name, r.entryPrice);
-      const fund = geminiAnalyzeFund(r.id, name, r.entryPrice);
+      // 三合一分析（1次呼叫取代原本3次）
+      const result = geminiAnalyzeAll(r.id, name, r.entryPrice);
 
-      r.newsAnalysis = news;
-      r.brokerAnalysis = broker;
-      r.fundAnalysis = fund;
+      r.newsAnalysis   = result.news;
+      r.brokerAnalysis = result.broker;
+      r.fundAnalysis   = result.fund;
 
-      // 綜合評分
-      const total = (news.score || 0) + (broker.score || 0) + (fund.score || 0);
+      const total = (result.news.score || 0) + (result.broker.score || 0) + (result.fund.score || 0);
       r.geminiTotal = total;
       r.geminiBonus = total >= 4 ? 2 : total >= 2 ? 1 : 0;
+      if (r.geminiBonus > 0) r.priority = Math.min(5, r.priority + r.geminiBonus);
 
-      // 優先級加成
-      if (r.geminiBonus > 0) {
-        r.priority = Math.min(5, r.priority + r.geminiBonus);
-      }
-
-      // 每檔之間暫停 2 秒，避免 Gemini rate limit
       Utilities.sleep(2000);
     } catch(e) {
+      if (e.message === 'QUOTA_EXCEEDED') {
+        Logger.log('Gemini 額度已用完，跳過剩餘分析');
+        return; // 跳出 forEach
+      }
       Logger.log(`${r.id} Gemini 分析失敗：${e.message}`);
-      r.newsAnalysis = { score: 0, summary: '分析失敗', keyNews: [], riskAlert: '─' };
-      r.brokerAnalysis = { score: 0, targetMedian: null, consensusRating: '資料不足', recentChange: '資料不足', brokerList: [], summary: '分析失敗' };
-      r.fundAnalysis = { score: 0, epsGrowth: '資料不足', revenueGrowth: '資料不足', peRatio: null, peAssessment: '資料不足', marginTrend: '資料不足', financialHealth: '資料不足', industryCycle: '不確定', summary: '分析失敗' };
       r.geminiTotal = 0;
       r.geminiBonus = 0;
     }
   });
+}
+
+/**
+ * 三合一分析：一次呼叫同時取得消息面、券商目標價、基本面
+ * 節省 66% Gemini 額度（3次→1次）
+ */
+function geminiAnalyzeAll(stockId, stockName, currentPrice) {
+  const today = getTodayStr();
+  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣上市股票「${stockId} ${stockName}」的最新資訊，進行三個面向的分析。
+
+目前股價：${currentPrice} 元
+
+【面向一：消息面】搜尋近 14 天重大新聞、法說會、訂單、產業動向
+【面向二：券商目標價】搜尋近 6 個月各大券商目標價與評級（富邦、國泰、元大、凱基、摩根士丹利等）
+【面向三：基本面】搜尋近四季 EPS、月營收趨勢、本益比、毛利率、財務健康
+
+各面向評分規則（score 必須是 -2、-1、0、1、2 其中一個整數）：
+消息面：+2 明確重大利多 / 0 中性 / -2 明確重大利空
+券商目標：+2 目標價空間>20%且多數買進 / 0 資料不足 / -2 主要券商下調
+基本面：+2 EPS成長+營收成長+財務健康 / 0 好壞參半 / -2 EPS虧損或大幅衰退
+
+只回傳以下 JSON，不要任何其他文字：
+{
+  "news": {"score":0,"summary":"2句繁體中文","keyNews":["消息1","消息2"],"riskAlert":"風險或無明顯利空"},
+  "broker": {"score":0,"targetMedian":null,"targetHigh":null,"targetLow":null,"upsidePct":null,"consensusRating":"資料不足","recentChange":"資料不足","brokerList":[],"summary":"2句繁體中文"},
+  "fund": {"score":0,"epsGrowth":"成長","revenueGrowth":"成長","peRatio":null,"peAssessment":"合理","marginTrend":"持平","financialHealth":"健康","industryCycle":"擴張","summary":"2句繁體中文"}
+}`;
+
+  const empty = {
+    news:   { score: 0, summary: '─', keyNews: [], riskAlert: '─' },
+    broker: { score: 0, targetMedian: null, consensusRating: '資料不足', recentChange: '資料不足', brokerList: [], summary: '─' },
+    fund:   { score: 0, epsGrowth: '─', revenueGrowth: '─', peRatio: null, peAssessment: '─', marginTrend: '─', financialHealth: '─', industryCycle: '─', summary: '─' }
+  };
+
+  try {
+    const raw = callGeminiGAS(prompt);
+    const parsed = JSON.parse(raw);
+    // 確保 score 都是整數
+    ['news','broker','fund'].forEach(k => {
+      if (parsed[k]) parsed[k].score = Math.max(-2, Math.min(2, parseInt(parsed[k].score) || 0));
+    });
+    return {
+      news:   { ...empty.news,   ...parsed.news   },
+      broker: { ...empty.broker, ...parsed.broker },
+      fund:   { ...empty.fund,   ...parsed.fund   }
+    };
+  } catch(e) {
+    if (e.message === 'QUOTA_EXCEEDED') throw e;
+    Logger.log(`geminiAnalyzeAll 解析失敗：${e.message}`);
+    return empty;
+  }
 }
 
 /**
@@ -519,10 +566,16 @@ function callGeminiGAS(prompt) {
         muteHttpExceptions: true
       });
 
-      const json = JSON.parse(res.getContentText());
+      const code = res.getResponseCode();
+      const body = res.getContentText();
 
-      if (res.getResponseCode() !== 200) {
-        // grounding 不支援，fallback 不帶 search
+      // 額度耗盡：直接拋出特殊錯誤，不繼續嘗試其他模型
+      if (code === 429 || body.includes('RESOURCE_EXHAUSTED') || body.includes('quota')) {
+        throw new Error('QUOTA_EXCEEDED');
+      }
+
+      if (code !== 200) {
+        // 其他錯誤：fallback 不帶 search
         const payload2 = {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
@@ -534,16 +587,16 @@ function callGeminiGAS(prompt) {
           muteHttpExceptions: true
         });
         if (res2.getResponseCode() !== 200) continue;
-        const json2 = JSON.parse(res2.getContentText());
-        const text2 = (json2.candidates || [])[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-        return extractJson(text2);
+        return extractJson(res2.getContentText());
       }
 
+      const json = JSON.parse(body);
       const parts = (json.candidates || [])[0]?.content?.parts || [];
       const text = parts.map(p => p.text || '').join('');
       return extractJson(text);
 
     } catch(e) {
+      if (e.message === 'QUOTA_EXCEEDED') throw e; // 直接往上拋，不繼續嘗試
       Logger.log(`模型 ${model} 失敗：${e.message}`);
       continue;
     }
