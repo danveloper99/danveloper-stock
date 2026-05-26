@@ -2987,7 +2987,7 @@ if (state.recommendations && state.recommendations.length > 0) {
 // ════════════════════════════════════════════════════
 // US WATCHLIST
 // ════════════════════════════════════════════════════
-const US_GAS_URL = 'https://script.google.com/macros/s/AKfycbxdhqiFNJsDGhySO7rojpmWxdgIEA08_mLaisZsQuvwKh32T5x8h74bFnw_h9cLva469A/exec'; // ← 貼上你的 GAS Web App URL（跟台股同一個）
+const US_GAS_URL = 'https://script.google.com/macros/s/AKfycbxdhqiFNJsDGhySO7rojpmWxdgIEA08_mLaisZsQuvwKh32T5x8h74bFnw_h9cLva469A/exec'; // GAS URL（與台股共用，亦可從 state.gasUrl 讀取）
 
 const US_DB = [
   {t:'AAPL',n:'Apple Inc.',s:'Technology'},{t:'MSFT',n:'Microsoft Corporation',s:'Technology'},
@@ -3187,7 +3187,8 @@ function usOpenScan() {
   document.getElementById('us-steps').innerHTML=US_SCAN_STEPS.map(st=>`<div class="us-step-item" id="us-st-${st.id}"><div class="us-step-icon wait" id="us-ic-${st.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div><span class="us-step-txt wait" id="us-tx-${st.id}">${st.txt}</span></div>`).join('');
   ov.classList.add('show');
 
-  if(!US_GAS_URL){
+  const _usGasUrl = US_GAS_URL || (typeof state !== 'undefined' && state.gasUrl) || '';
+  if(!_usGasUrl){
     // Demo mode：模擬掃描
     usRunDemoScan(0,0);
   } else {
@@ -3226,18 +3227,19 @@ function usFinishDemoScan() {
 
 // Real GAS scan
 async function usRunRealScan() {
+  const _usGasUrl = _usGasUrl || (typeof state !== 'undefined' && state.gasUrl) || '';
   const steps=US_SCAN_STEPS;
   // Step 1: sync
   usSetIcon(steps[0].id,'run');usSetTxtCls(steps[0].id,'run');
   try{
-    await fetch(US_GAS_URL,{method:'POST',body:JSON.stringify({action:'saveUSWatchlist',watchlist:usWL})});
+    await fetch(_usGasUrl,{method:'POST',body:JSON.stringify({action:'saveUSWatchlist',watchlist:usWL})});
     usSetIcon(steps[0].id,'done');usSetTxtCls(steps[0].id,'done');
     document.getElementById('us-pbar').style.width='16%';
   }catch(e){usSetIcon(steps[0].id,'done');usSetTxtCls(steps[0].id,'done');}
 
   // Step 2-5: trigger + wait
   usSetIcon(steps[1].id,'run');usSetTxtCls(steps[1].id,'run');
-  fetch(`${US_GAS_URL}?action=triggerUSScan`).catch(()=>{});
+  fetch(`${_usGasUrl}?action=triggerUSScan`).catch(()=>{});
   const pollDelay=Math.max(30000, usWL.length*1200);
   await new Promise(r=>usScanTimer=setTimeout(r,pollDelay));
   [1,2,3,4].forEach((n,i)=>setTimeout(()=>{usSetIcon(steps[n].id,'done');usSetTxtCls(steps[n].id,'done');document.getElementById('us-pbar').style.width=`${16+i*16}%`;},i*200));
@@ -3245,7 +3247,7 @@ async function usRunRealScan() {
   // Step 6: fetch results
   usSetIcon(steps[5].id,'run');usSetTxtCls(steps[5].id,'run');
   try{
-    const res=await fetch(`${US_GAS_URL}?action=getUSResults`);
+    const res=await fetch(`${_usGasUrl}?action=getUSResults`);
     const data=await res.json();
     if(data.results){
       const map={};data.results.forEach(r=>{map[r.ticker]=r;});
