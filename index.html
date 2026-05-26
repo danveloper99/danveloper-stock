@@ -1911,7 +1911,35 @@ function renderRecommendations(results) {
 
   const tierLabel = { large:'大型股', mid:'中型股', small:'小型股' };
   const tierTag = { large:'tag-priority-5', mid:'tag-priority-4', small:'tag-priority-3' };
-  const stars = p => '⭐'.repeat(p);
+  const stars = p => '⭐'.repeat(Math.max(1, p));
+
+  // 資金比例：依優先級決定，最高 20%（不管幾顆星都不超過）
+  function getPosionPct(priority) {
+    if (priority >= 5) return 0.20;
+    if (priority === 4) return 0.15;
+    if (priority === 3) return 0.10;
+    return 0.05;
+  }
+
+  // 即時計算建議股數（考量當前現金）
+  function calcSharesForCard(priority, price) {
+    if (!price || price <= 0) return { shares: 0, amount: 0, insufficient: true };
+    const pct = getPosionPct(priority);
+    const budget = Math.min(pct * state.capital, state.cash * 0.8);
+    const shares = Math.floor(budget / price);
+    if (shares <= 0) return { shares: 0, amount: 0, insufficient: true };
+    return { shares, amount: Math.round(shares * price), insufficient: false };
+  }
+
+  // 補充計算欄位（shares、stars 不受上限）
+  results.forEach(s => {
+    const info = calcSharesForCard(s.priority, s.entryPrice);
+    s.suggestedShares = info.shares;
+    s.suggestedAmount = info.amount;
+    s.insufficient = info.insufficient;
+    if (!s.chaseLimit) s.chaseLimit = Math.round((s.entryPrice || 0) * 1.02 * 100) / 100;
+    if (!s.analystBoosted) s.analystBoosted = s.analystUpside > 15;
+  });
 
   const countByTier = { large: 0, mid: 0, small: 0 };
   const countBoosted = results.filter(r => r.analystBoosted).length;
@@ -2094,7 +2122,14 @@ function onStockSelect() {
   document.getElementById('orderPrice').value = rec.entryPrice;
 
   // 零股建議股數（即時計算，考量當前現金）
-  const info = calcSuggestedShares(rec.priority, rec.entryPrice);
+  const info = (function(priority, price) {
+    if (!price || price <= 0) return { shares: 0, amount: 0, insufficient: true };
+    const pct = priority >= 5 ? 0.20 : priority === 4 ? 0.15 : priority === 3 ? 0.10 : 0.05;
+    const budget = Math.min(pct * state.capital, state.cash * 0.8);
+    const shares = Math.floor(budget / price);
+    return shares > 0 ? { shares, amount: Math.round(shares * price), insufficient: false }
+                      : { shares: 0, amount: 0, insufficient: true };
+  })(rec.priority, rec.entryPrice);
   document.getElementById('orderLot').value = info.insufficient ? 1 : info.shares;
 
   document.getElementById('orderSummaryBox').innerHTML = `
