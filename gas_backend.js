@@ -478,7 +478,7 @@ function runGeminiAnalysis(results) {
       const total = (result.news.score || 0) + (result.broker.score || 0) + (result.fund.score || 0);
       r.geminiTotal = total;
       r.geminiBonus = total >= 4 ? 2 : total >= 2 ? 1 : 0;
-      if (r.geminiBonus > 0) r.priority = Math.min(5, r.priority + r.geminiBonus);
+      if (r.geminiBonus > 0) r.priority = r.priority + r.geminiBonus; // 無上限
 
       Utilities.sleep(2000);
     } catch(e) {
@@ -781,7 +781,7 @@ function runPhase2Batch(stockIds) {
 
       const basePriority = Math.max(...hitCombos.map(c => c.base));
       const crossBonus = hitCombos.length >= 3 ? 2 : hitCombos.length === 2 ? 1 : 0;
-      const priority = Math.min(basePriority + crossBonus, 5);
+      const priority = basePriority + crossBonus; // 無上限，有幾顆顯示幾顆
       const combos = hitCombos.map(c => c.combo);
       const combo = combos[0];
       const atrMult = { B: 2.0, D: 2.0, A: 1.5, C: 1.5, E: 1.0, F: 1.5 }[combo] || 1.5;
