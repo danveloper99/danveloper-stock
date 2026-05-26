@@ -881,6 +881,9 @@
     </div>
     <div id="gasScanStatus" style="font-size:0.88rem;color:var(--text);font-weight:500;margin-bottom:0.4rem;">讀取中...</div>
     <div id="gasScanDetail" style="font-size:0.8rem;color:var(--text2);line-height:1.6;"></div>
+    <div id="finalizeBtn" style="display:none;margin-top:0.8rem;">
+      <button class="btn btn-ghost btn-sm" onclick="triggerFinalize()">⚡ 手動觸發收尾（掃描卡住時使用）</button>
+    </div>
   </div>
 
   <!-- Market condition -->
@@ -1527,6 +1530,24 @@ async function callGemini(prompt, useSearch = false) {
 // 從 GAS 讀取掃描結果
 // ═══════════════════════════════════════════════════
 
+async function triggerFinalize() {
+  if (!state.gasUrl) return;
+  const btn = event.target;
+  btn.textContent = '執行中...';
+  btn.disabled = true;
+  try {
+    const json = await gasFetch(state.gasUrl, { action: 'finalize' });
+    if (json.status === 'ok') {
+      notify('✓ 收尾已觸發，請稍後查看掃描進度', 'success');
+    }
+  } catch(e) {
+    notify('觸發失敗：' + e.message, 'error');
+  } finally {
+    btn.textContent = '⚡ 手動觸發收尾（掃描卡住時使用）';
+    btn.disabled = false;
+  }
+}
+
 // ── 掃描進度查看 ──
 let _progressTimer = null;
 
@@ -1586,7 +1607,14 @@ async function refreshScanProgress() {
       bar.style.background = 'var(--green)';
       status.textContent = `✅ 掃描完成！共找到 ${p.resultCount || found} 檔符合條件`;
       detail.innerHTML = `完成時間：${p.completedAt ? new Date(p.completedAt).toLocaleTimeString('zh-TW') : '─'}<br>點「🔄 讀取今日選股」查看結果`;
+      document.getElementById('finalizeBtn').style.display = 'none';
       stopProgressAutoRefresh();
+    } else if (pct >= 100) {
+      // 掃描批次完成，等待收尾
+      bar.style.background = 'var(--yellow)';
+      status.textContent = `⏳ 掃描完成，正在進行 AI 分析與儲存...`;
+      detail.innerHTML = `已找到 ${found} 檔｜正在執行 Gemini 分析 + 儲存結果<br>若超過 10 分鐘未完成，可點下方按鈕手動觸發`;
+      document.getElementById('finalizeBtn').style.display = 'block';
     } else {
       bar.style.background = 'var(--accent)';
       status.textContent = `⏳ 掃描進行中 — 第 ${batchIndex + 1} 批 | 已掃描約 ${scanned}/${total} 檔`;
