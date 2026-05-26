@@ -932,52 +932,115 @@ function markScanDone(results, isEmpty) {
 // 掃描結果儲存與讀取
 // ══════════════════════════════════════════════
 
+// 欄位定義（共 28 欄，每個個股獨立一列，最前面是日期）
+const SCAN_HEADERS = [
+  '掃描日期',   // 0  A
+  '代號',       // 1  B
+  '名稱',       // 2  C
+  '市值層級',   // 3  D
+  '主組合',     // 4  E
+  '交叉組合',   // 5  F
+  '優先級',     // 6  G
+  '交叉數',     // 7  H
+  '進場價',     // 8  I
+  '停損',       // 9  J
+  '目標一',     // 10 K
+  '目標二',     // 11 L
+  'ATR',        // 12 M
+  '投信買超天', // 13 N
+  '外資買超天', // 14 O
+  'RS%',        // 15 P
+  '法人目標價', // 16 Q
+  '法人空間%',  // 17 R
+  '消息面分',   // 18 S
+  '消息面摘要', // 19 T
+  '券商目標',   // 20 U
+  '券商評級',   // 21 V
+  '券商評分',   // 22 W
+  '基本面分',   // 23 X
+  'EPS趨勢',    // 24 Y
+  '營收趨勢',   // 25 Z
+  '基本面摘要', // 26 AA
+  'Gemini綜合分'// 27 AB
+];
+
 function saveScanResultsToSheet(results) {
   const sheet = getOrCreateSheet(SHEET_NAMES.SCAN);
-  sheet.clearContents();
-
   const today = getTodayStr();
-  const headers = [['掃描日期', '代號', '名稱', '市值層級', '主組合', '所有組合', '優先級',
-    '交叉數', '進場價', '停損', '目標一', '目標二', 'ATR', '投信買超天', '外資買超天', 'RS值', '原始JSON']];
-  sheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
-  sheet.getRange(1, 1, 1, headers[0].length)
-    .setBackground('#2c4a6e').setFontColor('#ffffff').setFontWeight('bold');
 
-  if (results.length === 0) return;
+  // 確保標題列存在
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, SCAN_HEADERS.length).setValues([SCAN_HEADERS]);
+    sheet.getRange(1, 1, 1, SCAN_HEADERS.length)
+      .setBackground('#2c4a6e').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
 
-  // 讀取股票名稱
+  // 刪除今日舊資料（避免重複）
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    const todayRowNums = [];
+    dates.forEach((d, i) => { if (d[0] === today) todayRowNums.push(i + 2); });
+    // 從後往前刪，避免索引位移
+    for (let i = todayRowNums.length - 1; i >= 0; i--) {
+      sheet.deleteRow(todayRowNums[i]);
+    }
+  }
+
+  if (results.length === 0) {
+    Logger.log('無結果可儲存');
+    return;
+  }
+
   const names = loadStockNames();
+  const insertRow = sheet.getLastRow() + 1;
 
-  const rows = results.map(r => [
-    today,
-    r.id,
-    names[r.id] || '',
-    r.tier || 'mid',
-    r.combo,
-    (r.combos || [r.combo]).join('+'),
-    r.priority,
-    r.hitCount || 1,
-    r.entryPrice,
-    r.stopLoss,
-    r.target1,
-    r.target2,
-    r.atr,
-    r.itrustBuy || 0,
-    r.foreignBuy || 0,
-    Math.round((r.rs || 0) * 1000) / 10,
-    JSON.stringify(r)
-  ]);
+  const rows = results.map(r => {
+    const n = r.newsAnalysis   || {};
+    const b = r.brokerAnalysis || {};
+    const f = r.fundAnalysis   || {};
+    return [
+      today,                                          // 掃描日期
+      String(r.id || ''),                             // 代號
+      String(r.name || names[r.id] || ''),            // 名稱
+      String(r.tier || 'mid'),                        // 市值層級
+      String(r.combo || ''),                          // 主組合
+      String((r.combos || [r.combo]).join('+')),      // 交叉組合
+      Number(r.priority || 0),                        // 優先級
+      Number(r.hitCount || 1),                        // 交叉數
+      Number(r.entryPrice || 0),                      // 進場價
+      Number(r.stopLoss || 0),                        // 停損
+      Number(r.target1 || 0),                         // 目標一
+      Number(r.target2 || 0),                         // 目標二
+      Number(r.atr || 0),                             // ATR
+      Number(r.itrustBuy || 0),                       // 投信買超天
+      Number(r.foreignBuy || 0),                      // 外資買超天
+      Number(Math.round((r.rs || 0) * 1000) / 10),   // RS%
+      r.analystTarget != null ? Number(r.analystTarget) : '', // 法人目標價
+      r.analystUpside != null ? Number(r.analystUpside) : '', // 法人空間%
+      n.score != null ? Number(n.score) : '',         // 消息面分
+      String((n.summary || '').slice(0, 150)),        // 消息面摘要（限150字）
+      b.targetMedian != null ? Number(b.targetMedian) : '',   // 券商目標
+      String(b.consensusRating || ''),                // 券商評級
+      b.score != null ? Number(b.score) : '',         // 券商評分
+      f.score != null ? Number(f.score) : '',         // 基本面分
+      String(f.epsGrowth || ''),                      // EPS趨勢
+      String(f.revenueGrowth || ''),                  // 營收趨勢
+      String((f.summary || '').slice(0, 150)),        // 基本面摘要（限150字）
+      r.geminiTotal != null ? Number(r.geminiTotal) : ''      // Gemini綜合分
+    ];
+  });
 
-  sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  sheet.getRange(insertRow, 1, rows.length, SCAN_HEADERS.length).setValues(rows);
 
   // 色彩標記優先級
   rows.forEach((row, i) => {
-    const rowNum = i + 2;
     const bg = row[6] >= 5 ? '#e8f4ff' : row[6] >= 4 ? '#f0f8f0' : '#fffef0';
-    sheet.getRange(rowNum, 1, 1, rows[0].length).setBackground(bg);
+    sheet.getRange(insertRow + i, 1, 1, SCAN_HEADERS.length).setBackground(bg);
   });
 
-  Logger.log(`已儲存 ${results.length} 筆掃描結果`);
+  Logger.log(`已儲存 ${results.length} 筆掃描結果（${today}）`);
 }
 
 function loadScanResults() {
@@ -986,21 +1049,42 @@ function loadScanResults() {
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return [];
 
-    const data = sheet.getRange(2, 1, lastRow - 1, 17).getValues();
+    const data = sheet.getRange(2, 1, lastRow - 1, SCAN_HEADERS.length).getValues();
+    if (data.length === 0) return [];
+
+    // 找最新日期
+    let latestDate = '';
+    data.forEach(r => { if (r[0] && r[0] > latestDate) latestDate = r[0]; });
+    if (!latestDate) return [];
+
     return data
-      .filter(r => r[0] && r[1])
-      .map(r => {
-        try { return JSON.parse(r[16]); } // 從原始 JSON 還原
-        catch(e) {
-          return { // fallback：從欄位重建
-            id: r[1], name: r[2], tier: r[3], combo: r[4],
-            combos: r[5].split('+'), priority: r[6],
-            entryPrice: r[8], stopLoss: r[9], target1: r[10],
-            target2: r[11], atr: r[12]
-          };
-        }
-      });
+      .filter(r => r[0] === latestDate && r[1])
+      .map(r => ({
+        date:           r[0],
+        id:             String(r[1]),
+        name:           String(r[2]),
+        tier:           String(r[3]),
+        combo:          String(r[4]),
+        combos:         r[5] ? String(r[5]).split('+') : [String(r[4])],
+        priority:       Number(r[6]),
+        hitCount:       Number(r[7]),
+        entryPrice:     Number(r[8]),
+        stopLoss:       Number(r[9]),
+        target1:        Number(r[10]),
+        target2:        Number(r[11]),
+        atr:            Number(r[12]),
+        itrustBuy:      Number(r[13]),
+        foreignBuy:     Number(r[14]),
+        rs:             Number(r[15]) / 100,
+        analystTarget:  r[16] !== '' ? Number(r[16]) : null,
+        analystUpside:  r[17] !== '' ? Number(r[17]) : null,
+        newsAnalysis:   r[18] !== '' ? { score: Number(r[18]), summary: String(r[19]) } : null,
+        brokerAnalysis: r[20] !== '' ? { targetMedian: Number(r[20]), consensusRating: String(r[21]), score: Number(r[22]) } : null,
+        fundAnalysis:   r[23] !== '' ? { score: Number(r[23]), epsGrowth: String(r[24]), revenueGrowth: String(r[25]), summary: String(r[26]) } : null,
+        geminiTotal:    r[27] !== '' ? Number(r[27]) : null,
+      }));
   } catch(e) {
+    Logger.log('loadScanResults 失敗：' + e.message);
     return [];
   }
 }
