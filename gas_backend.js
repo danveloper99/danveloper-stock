@@ -194,7 +194,7 @@ function runScanBatch() {
   const batchResults = runPhase2Batch(batchIds);
 
   // 合併已有結果
-  const existing = freshProgress.partialResults || [];
+  const existing = loadTempResults(); // 從 ScanTemp 讀取已累積的結果
   const merged = [...existing, ...batchResults];
 
   const nextBatch = batchIndex + 1;
@@ -202,29 +202,33 @@ function runScanBatch() {
 
   if (hasMore) {
     freshProgress.batchIndex = nextBatch;
-    freshProgress.partialResults = merged.map(r => ({
+    saveScanProgress(freshProgress); // 只存進度，不存結果
+    // 把這批新結果追加到 ScanTemp
+    const newResults = batchResults.map(r => ({
       id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
       itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
     }));
-    saveScanProgress(freshProgress);
+    saveTempResults(newResults);
     scheduleNextBatch(nextBatch);
     Logger.log(`第 ${batchIndex + 1} 批完成，已找到 ${merged.length} 檔，排程第 ${nextBatch + 1} 批`);
   } else {
     // 全部掃描完成：把結果存入 progress，排程獨立的收尾 Trigger
     Logger.log(`所有批次掃描完成，共 ${merged.length} 檔，排程收尾作業...`);
     freshProgress.batchIndex = nextBatch;
-    freshProgress.scanDone = true; // 標記掃描完成，等待收尾
-    freshProgress.partialResults = merged.map(r => ({
+    freshProgress.scanDone = true;
+    saveScanProgress(freshProgress);
+    // 把最後一批新結果追加到 ScanTemp
+    const lastResults = batchResults.map(r => ({
       id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
       itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
     }));
-    saveScanProgress(freshProgress);
+    saveTempResults(lastResults);
 
     // 1分鐘後執行收尾（儲存結果 + Gemini 分析 + Email）
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -249,8 +253,9 @@ function finalizeScan() {
     return;
   }
 
-  let merged = progress.partialResults || [];
+  let merged = loadTempResults(); // 從 ScanTemp 讀取所有結果
   const totalScanned = progress.totalCandidates || 0;
+  Logger.log(`finalizeScan：從 ScanTemp 讀到 ${merged.length} 筆結果`);
 
   // 排序
   merged.sort((a, b) => (b.priority - a.priority) || ((b.rs || 0) - (a.rs || 0)));
@@ -275,15 +280,10 @@ function finalizeScan() {
       }
 
       const nextOffset = batchEnd;
-      progress.partialResults = merged.map(r => ({
-        id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
-        priority: r.priority, hitCount: r.hitCount,
-        entryPrice: r.entryPrice, stopLoss: r.stopLoss,
-        target1: r.target1, target2: r.target2, atr: r.atr,
-        itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs,
-        geminiTotal: r.geminiTotal, geminiBonus: r.geminiBonus,
-        newsAnalysis: r.newsAnalysis, brokerAnalysis: r.brokerAnalysis, fundAnalysis: r.fundAnalysis
-      }));
+      // 把 Gemini 分析結果存回 ScanTemp（覆蓋）
+      const resultSheet = getOrCreateSheet('ScanTemp');
+      resultSheet.clearContents();
+      saveTempResults(merged);
       progress.geminiOffset = nextOffset;
       saveScanProgress(progress);
 
@@ -326,9 +326,10 @@ function finalizeScan() {
     progress.done = true;
     progress.resultCount = merged.length;
     progress.completedAt = new Date().toISOString();
-    progress.partialResults = [];
     progress.geminiOffset = 0;
     saveScanProgress(progress);
+    // 清空 ScanTemp（結果已存到 ScanResults）
+    try { getOrCreateSheet('ScanTemp').clearContents(); } catch(e) {}
   } catch(e) {
     Logger.log('標記完成失敗：' + e.message);
   }
@@ -860,13 +861,19 @@ function initScanProgress() {
   const progress = {
     batchIndex: 0,
     candidates: [],
-    partialResults: [],
     done: false,
+    scanDone: false,
     marketPass: true,
     startedAt: new Date().toISOString(),
-    totalCandidates: 0
+    totalCandidates: 0,
+    geminiOffset: 0,
+    resultCount: 0
+    // partialResults 不存在 progress，改用獨立工作表
   };
   sheet.getRange(1, 1).setValue(JSON.stringify(progress));
+  // 清空暫存結果
+  const resultSheet = getOrCreateSheet('ScanTemp');
+  resultSheet.clearContents();
   Logger.log('掃描進度已初始化');
 }
 
@@ -876,14 +883,41 @@ function loadScanProgress() {
     const val = sheet.getRange(1, 1).getValue();
     if (!val) return null;
     return JSON.parse(val);
-  } catch(e) {
-    return null;
-  }
+  } catch(e) { return null; }
 }
 
 function saveScanProgress(progress) {
+  // 不存 partialResults 到 progress，獨立存到 ScanTemp
+  const slim = Object.assign({}, progress);
+  delete slim.partialResults;
   const sheet = getOrCreateSheet(SHEET_NAMES.PROGRESS);
-  sheet.getRange(1, 1).setValue(JSON.stringify(progress));
+  const json = JSON.stringify(slim);
+  if (json.length > 49000) {
+    Logger.log('警告：progress JSON 仍過大：' + json.length);
+  }
+  sheet.getRange(1, 1).setValue(json);
+}
+
+// 暫存掃描結果（分批累積）
+function saveTempResults(results) {
+  const sheet = getOrCreateSheet('ScanTemp');
+  if (!results || results.length === 0) return;
+  // 每行存一筆 JSON
+  const lastRow = sheet.getLastRow();
+  const rows = results.map(r => [JSON.stringify(r)]);
+  sheet.getRange(lastRow + 1, 1, rows.length, 1).setValues(rows);
+}
+
+function loadTempResults() {
+  try {
+    const sheet = getOrCreateSheet('ScanTemp');
+    const lastRow = sheet.getLastRow();
+    if (lastRow === 0) return [];
+    const data = sheet.getRange(1, 1, lastRow, 1).getValues();
+    return data.map(row => {
+      try { return JSON.parse(row[0]); } catch(e) { return null; }
+    }).filter(Boolean);
+  } catch(e) { return []; }
 }
 
 function markScanDone(results, isEmpty) {
