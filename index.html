@@ -3604,5 +3604,53 @@ setInterval(usUpdateMarket,30000);
 usRender();
 usUpdateStats();
 
+// ── 初始化：從 GAS 讀取 USWatchlist ──
+async function usInitFromGAS() {
+  const gasUrl = US_GAS_URL || (typeof state !== 'undefined' && state.gasUrl) || '';
+  if (!gasUrl) return; // 未設定 GAS URL，使用 localStorage 資料
+
+  try {
+    const res  = await fetch(gasUrl + '?action=getUSWatchlist');
+    const data = await res.json();
+    if (data.status !== 'ok' || !Array.isArray(data.data) || !data.data.length) return;
+
+    const gasList = data.data; // [{ ticker, name, sector, addedAt, ... }]
+
+    // 把 GAS 清單合併進 localStorage（以 GAS 為主，保留本地已有的 signals/price 等）
+    const localMap = {};
+    usWL.forEach(s => { localMap[s.ticker] = s; });
+
+    let changed = false;
+    gasList.forEach(gs => {
+      if (!localMap[gs.ticker]) {
+        // GAS 有但 local 沒有 → 新增
+        usWL.push({
+          ticker:      gs.ticker,
+          name:        gs.name || gs.ticker,
+          sector:      gs.sector || 'Other',
+          addedAt:     gs.addedAt ? new Date(gs.addedAt).getTime() : Date.now(),
+          price:       null,
+          chgPct:      null,
+          signals:     [],
+          earningsDate: null,
+        });
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      usSave();
+      usRender();
+      usUpdateStats();
+      console.log('US Watchlist 已從 GAS 同步 ' + gasList.length + ' 檔');
+    }
+  } catch(e) {
+    console.warn('usInitFromGAS 失敗：', e.message);
+  }
+}
+
+// 延遲 1 秒後讀取，避免阻塞頁面初始化
+setTimeout(usInitFromGAS, 1000);
+
 </script>
 </body>
