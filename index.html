@@ -864,6 +864,7 @@
   <div class="tab active" onclick="switchTab(0)"><span class="tab-num">1</span>盤後選股推薦</div>
   <div class="tab" onclick="switchTab(1)"><span class="tab-num">2</span>模擬下單</div>
   <div class="tab" onclick="switchTab(2)"><span class="tab-num">3</span>儀表板</div>
+  <div class="tab" onclick="switchTab(3)"><span class="tab-num">4</span>🇺🇸 美股追蹤</div>
 </div>
 
 <!-- ═══════════════════════════════════════ TAB 1 ═══════════════════════════════════════ -->
@@ -1083,6 +1084,79 @@
   </div>
 </div>
 
+
+<!-- ═══════════════════════ TAB 4: 美股追蹤 ═══════════════════════ -->
+<div class="tab-content" id="tab3">
+  <div class="section-header">
+    <div class="section-title">🇺🇸 美股追蹤</div>
+    <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;">
+      <div class="date-badge" id="usDateBadge">—</div>
+      <button class="btn btn-ghost btn-sm" onclick="fetchUSData()">📡 更新 OHLC</button>
+      <button class="btn btn-primary btn-sm" onclick="openUSOrderModal()">＋ 新增掛單</button>
+    </div>
+  </div>
+
+  <!-- 持倉 & 掛單 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.5rem;">
+    <div class="order-form-card">
+      <div class="order-form-title">目前持倉</div>
+      <div id="usHoldingsTable"><p class="text-sm text-muted">尚無持倉</p></div>
+    </div>
+    <div class="order-form-card">
+      <div class="order-form-title">掛單中（等待成交）</div>
+      <div id="usPendingTable"><p class="text-sm text-muted">尚無掛單</p></div>
+    </div>
+  </div>
+
+  <!-- 交易紀錄 -->
+  <div class="order-form-card">
+    <div class="order-form-title">交易紀錄</div>
+    <div style="overflow-x:auto;">
+      <table class="holdings-table" id="usTradeHistTable">
+        <thead><tr><th>日期</th><th>代號</th><th>動作</th><th>價格</th><th>股數</th><th>金額(USD)</th><th>損益</th><th>原因</th></tr></thead>
+        <tbody id="usTradeHistBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:2rem;">尚無交易紀錄</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 美股下單 Modal -->
+<div class="modal-overlay" id="usOrderModal">
+  <div class="modal" style="width:480px;">
+    <h3>// 美股掛單</h3>
+    <div class="form-group">
+      <label>股票代號（如 AAPL、NVDA）</label>
+      <input class="form-input" type="text" id="usOrderSymbol" placeholder="AAPL" style="text-transform:uppercase;">
+    </div>
+    <div class="form-group">
+      <label>限價買入（USD）—— 收盤後自動比對當天低點</label>
+      <input class="form-input" type="number" id="usOrderLimit" placeholder="150.00" step="0.01">
+    </div>
+    <div class="form-group">
+      <label>股數</label>
+      <input class="form-input" type="number" id="usOrderShares" placeholder="10" min="1" value="10">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+      <div class="form-group">
+        <label>停損價（USD）</label>
+        <input class="form-input" type="number" id="usOrderStop" placeholder="140.00" step="0.01">
+      </div>
+      <div class="form-group">
+        <label>目標一（USD）</label>
+        <input class="form-input" type="number" id="usOrderTarget1" placeholder="165.00" step="0.01">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>目標二（USD，選填）</label>
+      <input class="form-input" type="number" id="usOrderTarget2" placeholder="180.00" step="0.01">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeUSOrderModal()">取消</button>
+      <button class="btn btn-primary" onclick="placeUSOrder()">確認掛單</button>
+    </div>
+  </div>
+</div>
+
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal" style="width:560px;max-height:90vh;overflow-y:auto;">
@@ -1137,9 +1211,15 @@
 
     <div style="font-size:0.72rem;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">▌ 模擬設定</div>
 
-    <div class="form-group">
-      <label>模擬本金（元）</label>
-      <input class="form-input" type="number" id="settingCapital" value="200000">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+      <div class="form-group">
+        <label>台股模擬本金（TWD）</label>
+        <input class="form-input" type="number" id="settingCapital" value="200000">
+      </div>
+      <div class="form-group">
+        <label>美股模擬本金（USD）</label>
+        <input class="form-input" type="number" id="settingUsCapital" value="10000">
+      </div>
     </div>
     <div class="form-group">
       <label>模擬開始日期</label>
@@ -1196,7 +1276,14 @@ let state = {
   trades:         [],
   dailySnapshots: [],
   recommendations:[],
-  tradeLog:       []
+  tradeLog:       [],
+  // 美股
+  usCapital:      10000,
+  usCash:         10000,
+  usHoldings:     [],   // { symbol, name, limitPrice, shares, stopLoss, target1, target2, entryDate, status, entryPrice, costBasis }
+  usPending:      [],   // 掛單中，status:'pending'
+  usTrades:       [],
+  usTradeLog:     []
 };
 
 let assetChartInstance = null;
@@ -1268,6 +1355,7 @@ function switchTab(idx) {
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
   document.querySelectorAll('.tab-content').forEach((c, i) => c.classList.toggle('active', i === idx));
   if (idx === 2) refreshDashboard();
+  if (idx === 3) renderUSTab();
 }
 
 // ═══════════════════════════════════════════════════
@@ -1303,6 +1391,7 @@ function openSettings() {
   document.getElementById('settingGeminiKey').value = state.geminiKey || '';
   document.getElementById('settingGasUrl').value = state.gasUrl || '';
   document.getElementById('settingCapital').value = state.capital || INITIAL_CAPITAL;
+  document.getElementById('settingUsCapital').value = state.usCapital || 10000;
   document.getElementById('settingStartDate').value = state.startDate || todayStr();
   document.getElementById('settingEmailNotify').checked = state.emailNotify !== false;
   document.getElementById('settingNotifyEmail').value = state.notifyEmail || '';
@@ -1330,6 +1419,11 @@ async function saveSettings() {
   if (newCap !== state.capital && state.trades.length === 0 && state.holdings.length === 0) {
     state.capital = newCap;
     state.cash = newCap;
+  }
+  const newUsCap = parseInt(document.getElementById('settingUsCapital').value) || 10000;
+  if (newUsCap !== state.usCapital && state.usTrades.length === 0 && state.usHoldings.length === 0) {
+    state.usCapital = newUsCap;
+    state.usCash = newUsCap;
   }
   state.startDate = document.getElementById('settingStartDate').value;
   saveState();
@@ -2264,47 +2358,10 @@ function placeOrder() {
   notify(`✓ 已下單 ${id} ${shares.toLocaleString()} 股 @ ${price}`, 'success');
 }
 
+
 // ═══════════════════════════════════════════════════
 // DAILY PRICE CONFIRMATION (OHLC check)
 // ═══════════════════════════════════════════════════
-function renderPendingInputs() {
-  const container = document.getElementById('pendingPriceInputs');
-  const activeHoldings = state.holdings.filter(h => h.status === 'hold');
-
-  if (activeHoldings.length === 0) {
-    container.innerHTML = `<p class="text-sm text-muted">目前沒有持倉需要確認</p>`;
-    return;
-  }
-
-  container.innerHTML = activeHoldings.map((h, idx) => `
-    <div style="margin-bottom:1rem;">
-      <div class="text-sm mb-1"><strong>${h.id}</strong> <span class="text-muted">｜停損 ${h.stopLoss} ｜目標1 ${h.target1} ｜目標2 ${h.target2}</span></div>
-      <div class="price-input-grid">
-        <div class="form-group">
-          <label>開盤價</label>
-          <input class="form-input" type="number" id="ohlc_open_${idx}" placeholder="Open" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>最高價</label>
-          <input class="form-input" type="number" id="ohlc_high_${idx}" placeholder="High" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>最低價</label>
-          <input class="form-input" type="number" id="ohlc_low_${idx}" placeholder="Low" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>收盤價</label>
-          <input class="form-input" type="number" id="ohlc_close_${idx}" placeholder="Close" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>日期</label>
-          <input class="form-input" type="date" id="ohlc_date_${idx}" value="${todayStr()}">
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="confirmOHLC(${idx})" style="height:38px;align-self:end;">確認</button>
-      </div>
-    </div>
-  `).join('');
-}
 
 function confirmOHLC(idx) {
   const activeHoldings = state.holdings.filter(h => h.status === 'hold');
@@ -2661,6 +2718,393 @@ function notify(msg, type = 'info') {
   el.textContent = msg;
   el.className = `notif ${type} show`;
   setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+// ═══════════════════════════════════════════════════
+// 台股 OHLC 自動化（收盤後自動抓 TWSE）
+// ═══════════════════════════════════════════════════
+
+async function fetchTWSE_OHLC(stockId, dateStr) {
+  // TWSE 單股當日資料：格式 YYYYMMDD
+  const d = dateStr.replace(/-/g, '');
+  try {
+    const url = `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockId}&date=${d}&response=json`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.stat !== 'OK' || !json.data || json.data.length === 0) return null;
+    // 找最後一筆（最新交易日）
+    const row = json.data[json.data.length - 1];
+    // 欄位：[日期, 成交股數, 成交金額, 開盤價, 最高價, 最低價, 收盤價, 漲跌價差, 成交筆數]
+    const parsePrice = s => parseFloat(String(s).replace(/,/g, '')) || 0;
+    return {
+      open:  parsePrice(row[3]),
+      high:  parsePrice(row[4]),
+      low:   parsePrice(row[5]),
+      close: parsePrice(row[6]),
+      date:  dateStr
+    };
+  } catch(e) {
+    console.warn('TWSE OHLC 失敗:', stockId, e.message);
+    return null;
+  }
+}
+
+async function autoFetchAndConfirmOHLC() {
+  const activeHoldings = state.holdings.filter(h => h.status === 'hold');
+  if (activeHoldings.length === 0) { notify('目前沒有持倉', 'info'); return; }
+
+  const btn = document.getElementById('autoOHLCBtn');
+  if (btn) { btn.textContent = '抓取中...'; btn.disabled = true; }
+
+  const today = todayStr();
+  let updated = 0;
+
+  for (let idx = 0; idx < activeHoldings.length; idx++) {
+    const h = activeHoldings[idx];
+    const ohlc = await fetchTWSE_OHLC(h.id, today);
+    if (!ohlc) {
+      notify(`${h.id} 今日無資料（可能休市或尚未收盤）`, 'info');
+      continue;
+    }
+    // 用台股確認邏輯
+    processTaiwanOHLC(h, ohlc);
+    updated++;
+  }
+
+  if (btn) { btn.textContent = '📡 自動抓取今日 OHLC'; btn.disabled = false; }
+  if (updated > 0) { saveDailySnapshot(); saveState(); updateUI(); }
+  notify(updated > 0 ? `✓ 已自動更新 ${updated} 檔 OHLC` : '無資料更新', updated > 0 ? 'success' : 'info');
+}
+
+function processTaiwanOHLC(h, ohlc) {
+  const { open, high, low, close, date } = ohlc;
+  const hIdx = state.holdings.indexOf(h);
+
+  const stopTriggered   = low  <= h.stopLoss;
+  const target1Triggered = high >= h.target1;
+  const target2Triggered = high >= h.target2;
+  let msg = '';
+
+  if (stopTriggered && target1Triggered) {
+    if (open >= h.target1) {
+      executeSell(hIdx, h.target1, h.sharesRemaining, date, '達目標一（開盤偏高）', true);
+      msg = `${h.id} 目標一 ${h.target1} 觸發（開盤偏高判定）`;
+    } else {
+      executeSell(hIdx, h.stopLoss, h.sharesRemaining, date, 'ATR停損觸發', false);
+      msg = `${h.id} 停損 ${h.stopLoss} 觸發`;
+    }
+  } else if (stopTriggered) {
+    executeSell(hIdx, h.stopLoss, h.sharesRemaining, date, 'ATR停損觸發', false);
+    msg = `${h.id} 停損觸發 @ ${h.stopLoss}`;
+  } else if (target2Triggered && h.sharesRemaining === h.shares) {
+    const half = Math.ceil(h.shares / 2);
+    executeSell(hIdx, h.target1, half, date, '達目標一（分批出場）', true);
+    if (state.holdings[hIdx] && state.holdings[hIdx].sharesRemaining > 0)
+      executeSell(hIdx, h.target2, state.holdings[hIdx].sharesRemaining, date, '達目標二', true);
+    msg = `${h.id} 目標一+二同日觸發，分批出場完畢`;
+  } else if (target1Triggered && h.sharesRemaining === h.shares) {
+    const half = Math.ceil(h.shares / 2);
+    executeSell(hIdx, h.target1, half, date, '達目標一（出50%）', true);
+    if (state.holdings[hIdx]) {
+      const newStop = +(close - h.atr * calcATRMultiplier(h.combo)).toFixed(2);
+      if (newStop > state.holdings[hIdx].stopLoss) state.holdings[hIdx].stopLoss = newStop;
+    }
+    msg = `${h.id} 目標一觸發，出場 ${half} 股，移動停損更新至 ${state.holdings[hIdx]?.stopLoss}`;
+  } else {
+    const newStop = +(close - h.atr * calcATRMultiplier(h.combo)).toFixed(2);
+    if (newStop > state.holdings[hIdx].stopLoss) {
+      state.holdings[hIdx].stopLoss = newStop;
+      msg = `${h.id} 移動停損更新至 ${newStop}`;
+    } else {
+      msg = `${h.id} 今日未觸發任何條件，持倉繼續`;
+    }
+  }
+  addTradeLog(date, 'info', msg);
+}
+
+// ═══════════════════════════════════════════════════
+// 美股 — Yahoo Finance OHLC
+// ═══════════════════════════════════════════════════
+
+async function fetchYahooOHLC(symbol, dateStr) {
+  try {
+    // Yahoo Finance v8 JSON（無需 key）
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const json = await res.json();
+    const result = json?.chart?.result?.[0];
+    if (!result) return null;
+    const ts = result.timestamp || [];
+    const q  = result.indicators?.quote?.[0];
+    if (!q || ts.length === 0) return null;
+
+    // 找最近的交易日（對應 dateStr）
+    const target = new Date(dateStr + 'T00:00:00').getTime() / 1000;
+    let bestIdx = ts.length - 1;
+    for (let i = 0; i < ts.length; i++) {
+      if (Math.abs(ts[i] - target) < 86400) { bestIdx = i; break; }
+    }
+    return {
+      open:  q.open[bestIdx]  || 0,
+      high:  q.high[bestIdx]  || 0,
+      low:   q.low[bestIdx]   || 0,
+      close: q.close[bestIdx] || 0,
+      date:  dateStr
+    };
+  } catch(e) {
+    console.warn('Yahoo OHLC 失敗:', symbol, e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 美股 Tab UI
+// ═══════════════════════════════════════════════════
+
+function renderUSTab() {
+  document.getElementById('usDateBadge').textContent =
+    new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', weekday:'short' });
+  renderUSHoldings();
+  renderUSPending();
+  renderUSTradeHist();
+}
+
+function renderUSHoldings() {
+  const el = document.getElementById('usHoldingsTable');
+  const active = state.usHoldings.filter(h => h.status === 'hold');
+  if (active.length === 0) { el.innerHTML = '<p class="text-sm text-muted">尚無持倉</p>'; return; }
+  el.innerHTML = `<table class="holdings-table">
+    <thead><tr><th>代號</th><th>成本</th><th>股數</th><th>停損</th><th>目標一</th><th>狀態</th><th></th></tr></thead>
+    <tbody>${active.map(h => `
+      <tr>
+        <td class="text-mono" style="font-weight:700;">${h.symbol}</td>
+        <td class="text-mono">$${h.entryPrice?.toFixed(2)}</td>
+        <td class="text-mono">${h.shares}</td>
+        <td class="text-mono negative">$${h.stopLoss}</td>
+        <td class="text-mono positive">$${h.target1}</td>
+        <td><span class="status-badge status-hold">持有中</span></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="removeUSHolding('${h.symbol}')">✕</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function renderUSPending() {
+  const el = document.getElementById('usPendingTable');
+  const pending = state.usPending || [];
+  if (pending.length === 0) { el.innerHTML = '<p class="text-sm text-muted">尚無掛單</p>'; return; }
+  el.innerHTML = `<table class="holdings-table">
+    <thead><tr><th>代號</th><th>限價</th><th>股數</th><th>停損</th><th>目標一</th><th></th></tr></thead>
+    <tbody>${pending.map((p, i) => `
+      <tr>
+        <td class="text-mono" style="font-weight:700;">${p.symbol}</td>
+        <td class="text-mono neutral">$${p.limitPrice}</td>
+        <td class="text-mono">${p.shares}</td>
+        <td class="text-mono negative">$${p.stopLoss || '—'}</td>
+        <td class="text-mono positive">$${p.target1 || '—'}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="cancelUSPending(${i})">取消</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function renderUSTradeHist() {
+  const tbody = document.getElementById('usTradeHistBody');
+  if (!state.usTrades || state.usTrades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:2rem;">尚無交易紀錄</td></tr>';
+    return;
+  }
+  tbody.innerHTML = [...state.usTrades].reverse().map(t => `
+    <tr>
+      <td class="text-mono text-xs">${t.date}</td>
+      <td class="text-mono" style="font-weight:700;">${t.symbol}</td>
+      <td><span class="status-badge ${t.action==='buy'?'status-hold':t.pnl>0?'status-profit':'status-loss'}">${t.action==='buy'?'買入':'賣出'}</span></td>
+      <td class="text-mono">$${t.price?.toFixed(2)}</td>
+      <td class="text-mono">${t.shares}</td>
+      <td class="text-mono">$${t.amount?.toFixed(2)}</td>
+      <td class="text-mono ${t.pnl==null?'':t.pnl>=0?'positive':'negative'}">${t.pnl==null?'—':(t.pnl>=0?'+':'')+t.pnl?.toFixed(2)}</td>
+      <td class="text-xs text-muted">${t.reason||''}</td>
+    </tr>`).join('');
+}
+
+// 美股下單 Modal
+function openUSOrderModal() {
+  ['usOrderSymbol','usOrderLimit','usOrderShares','usOrderStop','usOrderTarget1','usOrderTarget2']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = id === 'usOrderShares' ? '10' : ''; });
+  document.getElementById('usOrderModal').classList.add('open');
+}
+function closeUSOrderModal() {
+  document.getElementById('usOrderModal').classList.remove('open');
+}
+
+function placeUSOrder() {
+  const symbol = document.getElementById('usOrderSymbol').value.trim().toUpperCase();
+  const limitPrice = parseFloat(document.getElementById('usOrderLimit').value);
+  const shares = parseInt(document.getElementById('usOrderShares').value) || 1;
+  const stopLoss = parseFloat(document.getElementById('usOrderStop').value) || null;
+  const target1  = parseFloat(document.getElementById('usOrderTarget1').value) || null;
+  const target2  = parseFloat(document.getElementById('usOrderTarget2').value) || null;
+
+  if (!symbol) { notify('請填入股票代號', 'error'); return; }
+  if (!limitPrice || limitPrice <= 0) { notify('請填入限價', 'error'); return; }
+
+  const estimatedCost = limitPrice * shares;
+  if (estimatedCost > state.usCash) {
+    notify(`預估成本 $${estimatedCost.toFixed(2)} 超過美股可用資金 $${state.usCash.toFixed(2)}`, 'error'); return;
+  }
+
+  if (!state.usPending) state.usPending = [];
+  state.usPending.push({ symbol, limitPrice, shares, stopLoss, target1, target2, orderDate: todayStr() });
+  saveState();
+  closeUSOrderModal();
+  renderUSTab();
+  notify(`✓ ${symbol} 限價 $${limitPrice} 掛單成功，待收盤後自動比對`, 'success');
+}
+
+function cancelUSPending(idx) {
+  state.usPending.splice(idx, 1);
+  saveState();
+  renderUSTab();
+}
+
+function removeUSHolding(symbol) {
+  if (!confirm(`確定移除 ${symbol} 持倉？`)) return;
+  state.usHoldings = state.usHoldings.filter(h => !(h.symbol === symbol && h.status === 'hold'));
+  saveState();
+  renderUSTab();
+}
+
+// 美股「更新 OHLC」——自動抓 Yahoo Finance，比對掛單和持倉
+async function fetchUSData() {
+  const btn = document.querySelector('#tab3 .btn-ghost');
+  if (btn) { btn.textContent = '抓取中...'; btn.disabled = true; }
+
+  const today = todayStr();
+  let msgs = [];
+
+  // 1. 比對掛單（限價成交判斷）
+  if (!state.usPending) state.usPending = [];
+  const stillPending = [];
+  for (const order of state.usPending) {
+    const ohlc = await fetchYahooOHLC(order.symbol, today);
+    if (!ohlc || !ohlc.low) { stillPending.push(order); continue; }
+
+    if (ohlc.low <= order.limitPrice) {
+      // 成交！以限價計
+      const fillPrice = order.limitPrice;
+      const cost = fillPrice * order.shares;
+      state.usCash -= cost;
+      if (!state.usHoldings) state.usHoldings = [];
+      state.usHoldings.push({
+        symbol: order.symbol, shares: order.shares, sharesRemaining: order.shares,
+        limitPrice: order.limitPrice, entryPrice: fillPrice,
+        stopLoss: order.stopLoss, target1: order.target1, target2: order.target2,
+        entryDate: today, status: 'hold', costBasis: cost
+      });
+      if (!state.usTrades) state.usTrades = [];
+      state.usTrades.push({ date: today, symbol: order.symbol, action: 'buy', price: fillPrice, shares: order.shares, amount: cost, pnl: null, reason: '限價成交' });
+      msgs.push(`${order.symbol} 限價 $${fillPrice} 成交 ${order.shares} 股`);
+    } else {
+      // 未成交，繼續等
+      stillPending.push(order);
+    }
+  }
+  state.usPending = stillPending;
+
+  // 2. 更新持倉（停損/目標檢查）
+  if (!state.usHoldings) state.usHoldings = [];
+  for (const h of state.usHoldings.filter(h => h.status === 'hold')) {
+    const ohlc = await fetchYahooOHLC(h.symbol, today);
+    if (!ohlc || !ohlc.low) continue;
+    const msg = processUSHoldingOHLC(h, ohlc);
+    if (msg) msgs.push(msg);
+  }
+
+  saveState();
+  renderUSTab();
+  if (btn) { btn.textContent = '📡 更新 OHLC'; btn.disabled = false; }
+  notify(msgs.length > 0 ? msgs.join(' | ') : '今日無觸發，持倉繼續', msgs.length > 0 ? 'info' : 'info');
+}
+
+function processUSHoldingOHLC(h, ohlc) {
+  const { open, high, low, close, date } = ohlc;
+  const hIdx = state.usHoldings.indexOf(h);
+  let msg = '';
+
+  const stopHit = h.stopLoss && low <= h.stopLoss;
+  const t1Hit   = h.target1  && high >= h.target1;
+  const t2Hit   = h.target2  && high >= h.target2;
+
+  const sellUS = (price, shares, reason, isProfit) => {
+    const proceeds = price * shares;
+    const costPerShare = h.costBasis / h.shares;
+    const pnl = proceeds - costPerShare * shares;
+    state.usCash += proceeds;
+    h.sharesRemaining -= shares;
+    if (!state.usTrades) state.usTrades = [];
+    state.usTrades.push({ date, symbol: h.symbol, action: 'sell', price, shares, amount: proceeds, pnl, reason });
+    if (h.sharesRemaining <= 0) h.status = 'closed';
+    return `${h.symbol} ${reason} @ $${price}，損益 ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+  };
+
+  if (stopHit && t1Hit) {
+    msg = open >= h.target1 ? sellUS(h.target1, h.sharesRemaining, '目標一（開盤偏高）', true)
+                             : sellUS(h.stopLoss, h.sharesRemaining, '停損觸發', false);
+  } else if (stopHit) {
+    msg = sellUS(h.stopLoss, h.sharesRemaining, '停損觸發', false);
+  } else if (t2Hit && h.sharesRemaining === h.shares) {
+    const half = Math.ceil(h.shares / 2);
+    sellUS(h.target1, half, '達目標一（分批）', true);
+    if (h.sharesRemaining > 0) sellUS(h.target2, h.sharesRemaining, '達目標二', true);
+    msg = `${h.symbol} 目標一+二同日觸發，出場完畢`;
+  } else if (t1Hit && h.sharesRemaining === h.shares) {
+    const half = Math.ceil(h.shares / 2);
+    sellUS(h.target1, half, '達目標一（出50%）', true);
+    msg = `${h.symbol} 目標一觸發，出場 ${half} 股`;
+  } else {
+    msg = '';
+  }
+  return msg;
+}
+
+// ═══════════════════════════════════════════════════
+// 台股 OHLC 自動化按鈕渲染
+// ═══════════════════════════════════════════════════
+function renderPendingInputs() {
+  const container = document.getElementById('pendingPriceInputs');
+  const activeHoldings = state.holdings.filter(h => h.status === 'hold');
+
+  if (activeHoldings.length === 0) {
+    container.innerHTML = `<p class="text-sm text-muted">目前沒有持倉需要確認</p>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+      <button id="autoOHLCBtn" class="btn btn-primary btn-sm" onclick="autoFetchAndConfirmOHLC()">
+        📡 自動抓取今日 OHLC（TWSE）
+      </button>
+      <span style="font-size:0.8rem;color:var(--text3);font-family:var(--font-mono);">
+        ${activeHoldings.map(h => h.id + (h.name ? ' ' + h.name : '')).join('、')}
+      </span>
+    </div>
+    <details style="margin-top:0.5rem;">
+      <summary style="font-size:0.8rem;color:var(--text3);cursor:pointer;font-family:var(--font-mono);">或手動輸入 OHLC ▶</summary>
+      <div style="margin-top:0.8rem;">
+      ${activeHoldings.map((h, idx) => `
+        <div style="margin-bottom:1rem;">
+          <div class="text-sm mb-1"><strong>${h.id}${h.name ? ' ' + h.name : ''}</strong> <span class="text-muted">｜停損 ${h.stopLoss} ｜目標1 ${h.target1} ｜目標2 ${h.target2}</span></div>
+          <div class="price-input-grid">
+            <div class="form-group"><label>開盤價</label><input class="form-input" type="number" id="ohlc_open_${idx}" placeholder="Open" step="0.01"></div>
+            <div class="form-group"><label>最高價</label><input class="form-input" type="number" id="ohlc_high_${idx}" placeholder="High" step="0.01"></div>
+            <div class="form-group"><label>最低價</label><input class="form-input" type="number" id="ohlc_low_${idx}" placeholder="Low" step="0.01"></div>
+            <div class="form-group"><label>收盤價</label><input class="form-input" type="number" id="ohlc_close_${idx}" placeholder="Close" step="0.01"></div>
+            <div class="form-group"><label>日期</label><input class="form-input" type="date" id="ohlc_date_${idx}" value="${todayStr()}"></div>
+            <button class="btn btn-primary btn-sm" onclick="confirmOHLC(${idx})" style="height:38px;align-self:end;">確認</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </details>`;
 }
 
 // ═══════════════════════════════════════════════════
