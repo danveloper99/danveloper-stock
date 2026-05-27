@@ -1105,15 +1105,32 @@ function loadScanResults() {
     const data = sheet.getRange(2, 1, lastRow - 1, SCAN_HEADERS.length).getValues();
     if (data.length === 0) return [];
 
+    // 日期欄位可能是 Date 物件或字串，統一轉成 YYYY-MM-DD 字串
+    const toDateStr = v => {
+      if (!v) return '';
+      if (v instanceof Date) {
+        const y = v.getFullYear();
+        const m = String(v.getMonth() + 1).padStart(2, '0');
+        const d = String(v.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      return String(v).slice(0, 10);
+    };
+
     // 找最新日期
     let latestDate = '';
-    data.forEach(r => { if (r[0] && r[0] > latestDate) latestDate = r[0]; });
+    data.forEach(r => {
+      const d = toDateStr(r[0]);
+      if (d && d > latestDate) latestDate = d;
+    });
     if (!latestDate) return [];
 
+    Logger.log(`loadScanResults：最新日期=${latestDate}`);
+
     return data
-      .filter(r => r[0] === latestDate && r[1])
+      .filter(r => toDateStr(r[0]) === latestDate && r[1])
       .map(r => ({
-        date:           r[0],
+        date:           toDateStr(r[0]),
         id:             String(r[1]),
         name:           String(r[2]),
         tier:           String(r[3]),
