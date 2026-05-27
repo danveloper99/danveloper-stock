@@ -303,6 +303,12 @@
   .stock-card.priority-4::before { background: var(--green); }
   .stock-card.priority-3::before { background: var(--yellow); }
   .stock-card.priority-2::before { background: var(--text3); }
+  /* 6星以上：金色漸層，突顯超高優先 */
+  .stock-card.priority-6::before,
+  .stock-card.priority-7::before,
+  .stock-card.priority-8::before,
+  .stock-card.priority-9::before,
+  .stock-card.priority-10::before { background: linear-gradient(180deg, #f5c842, #e8960a); box-shadow: 0 0 6px rgba(245,200,66,0.5); }
 
   .stock-card:hover { border-color: var(--border); transform: translateX(2px); }
 
@@ -340,6 +346,12 @@
   .tag-priority-4 { background: rgba(122,171,138,0.12); color: var(--green); }
   .tag-priority-3 { background: rgba(201,169,110,0.15); color: var(--yellow); }
   .tag-priority-2 { background: rgba(176,169,159,0.15); color: var(--text2); }
+  /* 6星以上：金色 */
+  .tag-priority-6,
+  .tag-priority-7,
+  .tag-priority-8,
+  .tag-priority-9,
+  .tag-priority-10 { background: rgba(245,200,66,0.15); color: #c8880a; font-weight: 700; }
   .tag-industry { background: rgba(157,143,173,0.12); color: var(--purple); border: 1px solid rgba(157,143,173,0.25); }
   .tag-chase { background: rgba(181,114,106,0.10); color: var(--red); border: 1px solid rgba(181,114,106,0.25); }
   .tag-ok { background: rgba(122,171,138,0.10); color: var(--green); border: 1px solid rgba(122,171,138,0.25); }
