@@ -176,6 +176,8 @@ function runScanBatch() {
     }
     // 更新候選清單並執行第一批第二階段
     progress.candidates = phase1Results.map(s => s.id);
+    progress.nameMap = {};
+    phase1Results.forEach(s => { if (s.name) progress.nameMap[s.id] = s.name; });
     progress.totalCandidates = phase1Results.length;
     
     saveScanProgress(progress);
@@ -191,7 +193,7 @@ function runScanBatch() {
   const batchIds = freshCandidates.slice(freshStart, freshEnd);
 
   // 執行第二階段（完整技術分析）
-  const batchResults = runPhase2Batch(batchIds);
+  const batchResults = runPhase2Batch(batchIds, freshProgress.nameMap || {});
 
   // 合併已有結果
   const existing = loadTempResults(); // 從 ScanTemp 讀取已累積的結果
@@ -205,7 +207,7 @@ function runScanBatch() {
     saveScanProgress(freshProgress); // 只存進度，不存結果
     // 把這批新結果追加到 ScanTemp
     const newResults = batchResults.map(r => ({
-      id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
+      id: r.id, name: r.name || '', tier: r.tier, combo: r.combo, combos: r.combos,
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
@@ -222,7 +224,7 @@ function runScanBatch() {
     saveScanProgress(freshProgress);
     // 把最後一批新結果追加到 ScanTemp
     const lastResults = batchResults.map(r => ({
-      id: r.id, tier: r.tier, combo: r.combo, combos: r.combos,
+      id: r.id, name: r.name || '', tier: r.tier, combo: r.combo, combos: r.combos,
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
@@ -422,6 +424,7 @@ function runPhase1() {
     if (/[A-Za-z]/.test(id)) return;
     if (!/^\d{4,5}$/.test(id)) return;
 
+    const name = d.Name || d.CompanyName || ''; // TWSE: Name, TPEx: CompanyName
     const close = parseFloat(d.ClosingPrice || d.Close || 0);
     const open  = parseFloat(d.OpeningPrice || d.Open || close);
     const high  = parseFloat(d.HighestPrice || d.High || close);
@@ -440,7 +443,7 @@ function runPhase1() {
     if (amount > 5e8) tier = 'large';
     else if (amount < 5e7) tier = 'small';
 
-    passed.push({ id, close, open, high, low, vol, amount, tier });
+    passed.push({ id, name, close, open, high, low, vol, amount, tier });
   });
 
   Logger.log(`第一階段：${allData.length} 檔 → ${passed.length} 檔通過初篩`);
@@ -706,7 +709,8 @@ score 必須是 -2、-1、0、1、2 其中一個整數：
 // 第二階段：完整技術分析（單批）
 // ══════════════════════════════════════════════
 
-function runPhase2Batch(stockIds) {
+function runPhase2Batch(stockIds, nameMap) {
+  nameMap = nameMap || {};
   const today = getTodayStr();
   const start90 = getDaysAgo(90);
   const start15 = getDaysAgo(15);
@@ -796,7 +800,7 @@ function runPhase2Batch(stockIds) {
         ? (lastClose - closes[closes.length - 6]) / (closes[closes.length - 6] || 1) : 0;
 
       results.push({
-        id, tier, combo, combos, priority,
+        id, name: nameMap[id] || '', tier, combo, combos, priority,
         hitCount: hitCombos.length, crossBonus,
         entryPrice: lastClose, stopLoss, target1, target2,
         atr: Math.round(atr * 100) / 100,
@@ -1164,6 +1168,29 @@ function loadScanResults() {
 // ══════════════════════════════════════════════
 
 function loadStockNames() {
+  // 優先從 ScanTemp 工作表取名稱（Phase1 已帶入，不消耗 UrlFetchApp 配額）
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.TEMP);
+    if (sheet && sheet.getLastRow() > 0) {
+      const names = {};
+      const rows = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
+      rows.forEach(row => {
+        try {
+          const obj = JSON.parse(row[0]);
+          if (obj.id && obj.name) names[obj.id] = obj.name;
+        } catch(e) {}
+      });
+      const count = Object.keys(names).length;
+      if (count > 0) {
+        Logger.log(`loadStockNames：從 ScanTemp 取得 ${count} 筆名稱`);
+        return names;
+      }
+    }
+  } catch(e) {
+    Logger.log('loadStockNames ScanTemp 失敗：' + e.message);
+  }
+
+  // Fallback：FinMind（但可能因配額失敗）
   try {
     const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockInfo&token=${CONFIG.FINMIND_TOKEN}`;
     const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
@@ -1174,8 +1201,10 @@ function loadStockNames() {
       const name = d.stock_name || d.StockName || d.company_name || '';
       if (id && name) names[id] = name;
     });
+    Logger.log(`loadStockNames：從 FinMind 取得 ${Object.keys(names).length} 筆名稱`);
     return names;
   } catch(e) {
+    Logger.log('loadStockNames FinMind 失敗：' + e.message);
     return {};
   }
 }
