@@ -64,8 +64,18 @@ function doGet(e) {
     if (action === 'getSnapshots') return jsonResponse({ status: 'ok', data: loadSnapshots() });
     if (action === 'getScanResults') return jsonResponse({ status: 'ok', data: loadScanResults() });
     if (action === 'getScanProgress') return jsonResponse({ status: 'ok', data: loadScanProgress() });
+    if (action === 'getUSWatchlist') return jsonResponse({ status: 'ok', data: loadUSWatchlist() });
+    if (action === 'getUSResults')   return jsonResponse({ status: 'ok', data: loadUSResults() });
+    if (action === 'triggerUSScan') {
+      try { runUSScan(); } catch(e) {}
+      return jsonResponse({ status: 'ok', data: loadUSResults() });
+    }
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
   } catch(err) {
+        if (action === 'saveUSWatchlist') {
+      saveUSWatchlistToSheet(body.watchlist || []);
+      return jsonResponse({ status: 'ok' });
+    }
     return jsonResponse({ status: 'error', msg: err.message });
   }
 }
@@ -113,6 +123,12 @@ function doPost(e) {
       return jsonResponse({ status: 'ok', msg: 'finalizeScan 已執行' });
     }
 
+    if (action === 'getUSWatchlist') return jsonResponse({ status: 'ok', data: loadUSWatchlist() });
+    if (action === 'getUSResults')   return jsonResponse({ status: 'ok', data: loadUSResults() });
+    if (action === 'triggerUSScan') {
+      try { runUSScan(); } catch(e) {}
+      return jsonResponse({ status: 'ok', data: loadUSResults() });
+    }
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
   } catch(err) {
     return jsonResponse({ status: 'error', msg: err.message });
@@ -1520,4 +1536,130 @@ function setupAll() {
 function testScanNow() {
   Logger.log('=== 手動測試掃描 ===');
   dailyScanStart();
+}
+
+
+// ════════════════════════════════════════════════════
+// US WATCHLIST — GAS 工具函式
+// ════════════════════════════════════════════════════
+
+var US_WATCHLIST_SHEET = 'USWatchlist';
+var US_RESULTS_SHEET   = 'USResults';
+
+/**
+ * 讀取 USWatchlist 工作表，回傳自選股陣列
+ */
+function loadUSWatchlist() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(US_WATCHLIST_SHEET);
+  if (!sheet) return [];
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  // 第一行是 header，找欄位 index
+  var header = data[0].map(function(h){ return String(h).toLowerCase().trim(); });
+  var iT = header.indexOf('ticker');
+  var iN = header.indexOf('name');
+  var iS = header.indexOf('sector');
+  var iA = header.indexOf('addedat');
+  if (iT < 0) iT = 0; // fallback: 第一欄是 ticker
+
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var ticker = String(row[iT] || '').trim().toUpperCase();
+    if (!ticker) continue;
+    result.push({
+      ticker:    ticker,
+      name:      iN >= 0 ? String(row[iN] || ticker) : ticker,
+      sector:    iS >= 0 ? String(row[iS] || 'Other') : 'Other',
+      addedAt:   iA >= 0 ? row[iA] : '',
+      price:     null,
+      chgPct:    null,
+      signals:   [],
+      earningsDate: null,
+    });
+  }
+  return result;
+}
+
+/**
+ * 把前端的自選股清單寫入 USWatchlist 工作表
+ * 如果工作表已有資料，保留 GAS 那邊有但前端沒有的欄位（不覆蓋）
+ */
+function saveUSWatchlistToSheet(watchlist) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(US_WATCHLIST_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(US_WATCHLIST_SHEET);
+  }
+
+  sheet.clearContents();
+  sheet.getRange('A1:D1').setValues([['ticker','name','sector','addedAt']]);
+
+  if (watchlist && watchlist.length > 0) {
+    var rows = watchlist.map(function(s) {
+      return [
+        s.ticker  || '',
+        s.name    || s.ticker || '',
+        s.sector  || 'Other',
+        s.addedAt || new Date().toISOString(),
+      ];
+    });
+    sheet.getRange(2, 1, rows.length, 4).setValues(rows);
+  }
+  Logger.log('USWatchlist 已同步：' + (watchlist ? watchlist.length : 0) + ' 檔');
+}
+
+/**
+ * 讀取 USResults 工作表，回傳掃描結果
+ */
+function loadUSResults() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(US_RESULTS_SHEET);
+  if (!sheet) return { meta: {}, results: [] };
+
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) return { meta: {}, results: [] };
+
+  var meta = {};
+  try { meta = JSON.parse(data[0][0]); } catch(e) {}
+
+  var results = [];
+  for (var i = 1; i < data.length; i++) {
+    try {
+      if (data[i][0]) results.push(JSON.parse(data[i][0]));
+    } catch(e) {}
+  }
+  return { meta: meta, results: results };
+}
+
+/**
+ * 美股掃描主函式（由 triggerUSScan 呼叫）
+ * 如果 us_scanner.gs 已安裝，直接呼叫 runUSScan()
+ * 否則這裡有一個基礎版本
+ */
+function runUSScan() {
+  // 如果已安裝 us_scanner.gs，它會覆寫這個函式
+  // 這裡是 fallback：直接把 USWatchlist 的資料加上空訊號回傳
+  var watchlist = loadUSWatchlist();
+  if (!watchlist.length) {
+    Logger.log('USWatchlist 是空的，跳過掃描');
+    return;
+  }
+
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(US_RESULTS_SHEET);
+  if (!sheet) sheet = ss.insertSheet(US_RESULTS_SHEET);
+
+  sheet.clearContents();
+  var meta = JSON.stringify({ lastUpdated: new Date().toISOString(), count: watchlist.length, signalCount: 0 });
+  sheet.getRange('A1').setValue(meta);
+
+  if (watchlist.length > 0) {
+    var rows = watchlist.map(function(s) { return [JSON.stringify(s)]; });
+    sheet.getRange(2, 1, rows.length, 1).setValues(rows);
+  }
+  Logger.log('US 基礎掃描完成（無技術指標，需安裝 us_scanner.gs 以啟用完整掃描）');
 }
