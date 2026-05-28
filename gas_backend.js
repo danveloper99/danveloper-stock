@@ -558,9 +558,11 @@ function callGeminiGAS(prompt) {
   // gemini-2.0-flash 用 v1beta，grounding 格式較新
   // gemini-1.5-flash 用 v1beta，grounding 格式舊版
   const models = [
-    { model: 'gemini-2.0-flash', api: 'v1beta', grounding: { googleSearch: {} } },
-    { model: 'gemini-1.5-flash', api: 'v1beta', grounding: { google_search_retrieval: { dynamic_retrieval_config: { mode: 'MODE_DYNAMIC', dynamic_threshold: 0.3 } } } },
-    { model: 'gemini-1.5-flash', api: 'v1beta', grounding: null }  // 不帶 grounding 的 fallback
+    { model: 'gemini-2.0-flash',       api: 'v1beta', grounding: { googleSearch: {} } },
+    { model: 'gemini-2.0-flash-lite',  api: 'v1beta', grounding: { googleSearch: {} } },
+    { model: 'gemini-1.5-flash',       api: 'v1',     grounding: { google_search_retrieval: { dynamic_retrieval_config: { mode: 'MODE_DYNAMIC', dynamic_threshold: 0.3 } } } },
+    { model: 'gemini-1.5-flash-latest',api: 'v1',     grounding: { google_search_retrieval: { dynamic_retrieval_config: { mode: 'MODE_DYNAMIC', dynamic_threshold: 0.3 } } } },
+    { model: 'gemini-1.5-flash',       api: 'v1',     grounding: null }  // 不帶 grounding 的 fallback
   ];
 
   for (const { model, api, grounding } of models) {
