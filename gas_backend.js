@@ -5,7 +5,6 @@
  *   1. Web App API（資料儲存 / 讀取 / Email 通知）
  *   2. 全市場自動掃描（接力 Trigger，每天盤後自動執行）
  *   3. 掃描完成後 Email 通知
- *   4. 美股 Watchlist 讀寫與掃描（v3.0 新增）
  *
  * 部署步驟：
  *   1. Extensions > Apps Script > 貼上此程式碼
@@ -22,8 +21,6 @@
  *   ScanResults    - GAS 掃描結果（主要儲存）
  *   ScanProgress   - 掃描進度（接力用）
  *   Notifications  - Email 寄送紀錄
- *   USWatchlist    - 美股自選股清單（v3.0）
- *   USResults      - 美股掃描結果（v3.0）
  */
 
 // ══════════════════════════════════════════════
@@ -45,9 +42,7 @@ const SHEET_NAMES = {
   SNAPSHOTS: 'Snapshots',
   SCAN: 'ScanResults',
   PROGRESS: 'ScanProgress',
-  NOTIF: 'Notifications',
-  US_WATCHLIST: 'USWatchlist',
-  US_RESULTS: 'USResults',
+  NOTIF: 'Notifications'
 };
 
 // ══════════════════════════════════════════════
@@ -57,28 +52,22 @@ const SHEET_NAMES = {
 function doGet(e) {
   const action = e.parameter.action || '';
 
-  // 無 action → 回傳台股掃描結果（供網頁讀取今日推薦）
+  // 無 action → 回傳掃描結果（供網頁讀取今日推薦）
   if (!action) {
     const results = loadScanResults();
     return jsonResponse({ status: 'ok', data: results });
   }
 
   try {
-    // ── 台股 ──
-    if (action === 'getState')        return jsonResponse({ status: 'ok', data: loadStateFromSheet() });
-    if (action === 'getTrades')       return jsonResponse({ status: 'ok', data: loadTrades() });
-    if (action === 'getSnapshots')    return jsonResponse({ status: 'ok', data: loadSnapshots() });
-    if (action === 'getScanResults')  return jsonResponse({ status: 'ok', data: loadScanResults() });
+    if (action === 'getState') return jsonResponse({ status: 'ok', data: loadStateFromSheet() });
+    if (action === 'getTrades') return jsonResponse({ status: 'ok', data: loadTrades() });
+    if (action === 'getSnapshots') return jsonResponse({ status: 'ok', data: loadSnapshots() });
+    if (action === 'getScanResults') return jsonResponse({ status: 'ok', data: loadScanResults() });
     if (action === 'getScanProgress') return jsonResponse({ status: 'ok', data: loadScanProgress() });
-
-    // ── 美股 ──
-    if (action === 'getUSWatchlist')  return jsonResponse({ status: 'ok', data: loadUSWatchlist() });
-    if (action === 'getUSResults')    return jsonResponse({ status: 'ok', data: loadUSResults() });
-    if (action === 'triggerUSScan') {
-      try { runUSScan(); } catch(err) { Logger.log('runUSScan error: ' + err.message); }
-      return jsonResponse({ status: 'ok', data: loadUSResults() });
+    if (action === 'getOHLC') {
+      const { market, symbols, date } = body;
+      return jsonResponse({ status: 'ok', data: fetchOHLCBatch(market, symbols, date) });
     }
-
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
   } catch(err) {
     return jsonResponse({ status: 'error', msg: err.message });
@@ -90,7 +79,6 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     const action = body.action;
 
-    // ── 台股 ──
     if (action === 'saveState') {
       saveStateToSheet(body.data);
       saveTradesFromState(body.data.trades || []);
@@ -123,18 +111,13 @@ function doPost(e) {
     }
 
     if (action === 'finalize') {
+      // 手動觸發收尾（掃描卡住時使用）
       loadConfigFromSheet();
       finalizeScan();
       return jsonResponse({ status: 'ok', msg: 'finalizeScan 已執行' });
     }
 
-    // ── 美股 ──
-    if (action === 'saveUSWatchlist') {
-      saveUSWatchlistToSheet(body.watchlist || []);
-      return jsonResponse({ status: 'ok' });
-    }
-
-    return jsonResponse({ status: 'error', msg: 'Unknown action: ' + action });
+    return jsonResponse({ status: 'error', msg: 'Unknown action' });
   } catch(err) {
     return jsonResponse({ status: 'error', msg: err.message });
   }
@@ -146,361 +129,12 @@ function jsonResponse(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// 處理 CORS preflight（OPTIONS 請求）
 function doOptions(e) {
   return ContentService
     .createTextOutput('')
     .setMimeType(ContentService.MimeType.TEXT);
 }
-
-// ══════════════════════════════════════════════
-// 美股 Watchlist（v3.0）
-// ══════════════════════════════════════════════
-
-/**
- * 讀取 USWatchlist 工作表，回傳自選股陣列
- * 前端 Tab5 初始化時呼叫，把 GAS 試算表的內容帶出來
- */
-function loadUSWatchlist() {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.US_WATCHLIST);
-  if (!sheet) return [];
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
-
-  // 第一行是 header，找欄位 index（大小寫不敏感）
-  const header = data[0].map(function(h){ return String(h).toLowerCase().trim(); });
-  var iT = header.indexOf('ticker');
-  var iN = header.indexOf('name');
-  var iS = header.indexOf('sector');
-  var iA = header.indexOf('addedat');
-  if (iT < 0) iT = 0; // fallback：第一欄視為 ticker
-
-  const result = [];
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const ticker = String(row[iT] || '').trim().toUpperCase();
-    if (!ticker) continue;
-    result.push({
-      ticker,
-      name:        iN >= 0 ? String(row[iN] || ticker) : ticker,
-      sector:      iS >= 0 ? String(row[iS] || 'Other') : 'Other',
-      addedAt:     iA >= 0 ? String(row[iA] || '') : '',
-      price:       null,
-      chgPct:      null,
-      signals:     [],
-      earningsDate: null,
-    });
-  }
-  Logger.log('loadUSWatchlist：讀到 ' + result.length + ' 檔');
-  return result;
-}
-
-/**
- * 把前端傳來的自選股清單寫入 USWatchlist 工作表
- * 前端按「盤後掃描」時先 POST saveUSWatchlist 同步清單
- */
-function saveUSWatchlistToSheet(watchlist) {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  let   sheet = ss.getSheetByName(SHEET_NAMES.US_WATCHLIST);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.US_WATCHLIST);
-
-  sheet.clearContents();
-  sheet.getRange('A1:D1').setValues([['ticker','name','sector','addedAt']]);
-  sheet.getRange('A1:D1').setBackground('#4a3a6a').setFontColor('#ffffff').setFontWeight('bold');
-
-  if (watchlist && watchlist.length > 0) {
-    const rows = watchlist.map(s => [
-      s.ticker  || '',
-      s.name    || s.ticker || '',
-      s.sector  || 'Other',
-      s.addedAt || new Date().toISOString(),
-    ]);
-    sheet.getRange(2, 1, rows.length, 4).setValues(rows);
-  }
-  Logger.log('saveUSWatchlistToSheet：已同步 ' + (watchlist ? watchlist.length : 0) + ' 檔');
-}
-
-/**
- * 讀取 USResults 工作表，回傳掃描結果給前端
- */
-function loadUSResults() {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.US_RESULTS);
-  if (!sheet) return { meta: {}, results: [] };
-
-  const data = sheet.getDataRange().getValues();
-  if (!data.length) return { meta: {}, results: [] };
-
-  let meta = {};
-  try { meta = JSON.parse(data[0][0]); } catch(e) {}
-
-  const results = [];
-  for (let i = 1; i < data.length; i++) {
-    try { if (data[i][0]) results.push(JSON.parse(data[i][0])); } catch(e) {}
-  }
-  Logger.log('loadUSResults：讀到 ' + results.length + ' 筆結果');
-  return { meta, results };
-}
-
-/**
- * 美股掃描主函式
- * 從 USWatchlist 讀取清單，對每檔抓 Yahoo Finance OHLCV，跑六組組合判斷
- */
-function runUSScan() {
-  Logger.log('=== US 掃描開始 ===');
-  const watchlist = loadUSWatchlist();
-  if (!watchlist.length) {
-    Logger.log('USWatchlist 是空的，跳過');
-    return;
-  }
-
-  // 大盤過濾（SPY vs 20MA）
-  const marketOk = usCheckMarket();
-  Logger.log('美股大盤狀態：' + (marketOk ? '✅ 偏多' : '⚠️ 謹慎'));
-
-  const results = [];
-
-  watchlist.forEach((stock, i) => {
-    try {
-      if (i > 0 && i % 10 === 0) Utilities.sleep(2000);
-
-      const hist = usFetchYahoo(stock.ticker, 90);
-      if (!hist || hist.length < 20) {
-        Logger.log(stock.ticker + '：歷史資料不足，跳過');
-        return;
-      }
-
-      const signals  = usRunCombos(hist);
-      const today    = hist[hist.length - 1];
-      const prev     = hist[hist.length - 2];
-      const chgPct   = prev ? ((today.close - prev.close) / prev.close * 100) : 0;
-
-      results.push({
-        ticker:      stock.ticker,
-        name:        stock.name,
-        sector:      stock.sector,
-        price:       Math.round(today.close * 100) / 100,
-        chgPct:      Math.round(chgPct * 100) / 100,
-        signals,
-        earningsDate: null, // 財報日資料可在此擴充
-        scannedAt:   new Date().toISOString(),
-      });
-
-      Logger.log(stock.ticker + '：$' + today.close.toFixed(2) +
-        '　訊號：[' + signals.map(s => s.id).join(',') + ']');
-
-    } catch(err) {
-      Logger.log(stock.ticker + ' 掃描失敗：' + err.message);
-    }
-  });
-
-  // 寫入 USResults
-  usSaveResults(results);
-  Logger.log('=== US 掃描完成，共 ' + results.length + ' 檔，' +
-    results.filter(r => r.signals.length).length + ' 檔有訊號 ===');
-}
-
-/** 從 Yahoo Finance 抓 OHLCV 歷史 */
-function usFetchYahoo(ticker, days) {
-  const end   = Math.floor(Date.now() / 1000);
-  const start = end - days * 86400;
-  const url   = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
-    ticker + '?interval=1d&period1=' + start + '&period2=' + end;
-  try {
-    const res  = UrlFetchApp.fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      muteHttpExceptions: true,
-    });
-    const json   = JSON.parse(res.getContentText());
-    const result = json && json.chart && json.chart.result && json.chart.result[0];
-    if (!result) return null;
-
-    const ts  = result.timestamp;
-    const q   = result.indicators.quote[0];
-    const hist = [];
-    for (let i = 0; i < ts.length; i++) {
-      if (q.close[i] == null) continue;
-      hist.push({
-        date:   new Date(ts[i] * 1000).toISOString().split('T')[0],
-        open:   q.open[i],
-        high:   q.high[i],
-        low:    q.low[i],
-        close:  q.close[i],
-        volume: q.volume[i] || 0,
-      });
-    }
-    return hist;
-  } catch(err) {
-    Logger.log('Yahoo fetch error (' + ticker + '): ' + err.message);
-    return null;
-  }
-}
-
-/** 大盤過濾：SPY vs 20MA */
-function usCheckMarket() {
-  try {
-    const hist = usFetchYahoo('SPY', 30);
-    if (!hist || hist.length < 20) return true;
-    const closes = hist.map(d => d.close);
-    const ma20   = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    return closes[closes.length - 1] > ma20;
-  } catch(e) { return true; }
-}
-
-/** 技術指標 helpers */
-function usCalcMA(hist, period) {
-  if (hist.length < period) return null;
-  return hist.slice(-period).map(d => d.close).reduce((a, b) => a + b, 0) / period;
-}
-
-function usCalcATR(hist, period) {
-  period = period || 14;
-  if (hist.length < period + 1) return null;
-  const trs = [];
-  for (let i = hist.length - period; i < hist.length; i++) {
-    const h = hist[i].high, l = hist[i].low, pc = hist[i-1].close;
-    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-  }
-  return trs.reduce((a, b) => a + b, 0) / period;
-}
-
-function usVolAvg(hist, period) {
-  const vols = hist.slice(-period).map(d => d.volume).filter(v => v > 0);
-  return vols.length ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
-}
-
-/** 六組組合判斷（美股適配版） */
-function usRunCombos(hist) {
-  const signals = [];
-  const n = hist.length;
-  if (n < 25) return signals;
-
-  const today    = hist[n-1];
-  const prev     = hist[n-2];
-  const atr      = usCalcATR(hist, 14);
-  if (!atr) return signals;
-
-  const ma5      = usCalcMA(hist, 5);
-  const ma20     = usCalcMA(hist, 20);
-  const ma60     = usCalcMA(hist, Math.min(60, n));
-  const volAvg20 = usVolAvg(hist.slice(0, -1), 20);
-  const volMult  = volAvg20 > 0 ? today.volume / volAvg20 : 0;
-  const isGreen  = today.close >= today.open;
-
-  // ── 組合 A：趨勢突破型（量門檻 ×1.3，美股大型股適配）──
-  try {
-    const high20    = Math.max(...hist.slice(-21, -1).map(d => d.high));
-    const maAligned = ma5 > ma20 && ma20 > ma60;
-    if (today.close > high20 && maAligned && volMult >= 1.3 && isGreen) {
-      signals.push({ id: 'A', data: {
-        volMult:  volMult.toFixed(1),
-        entry:    today.close.toFixed(2),
-        t1:       (today.close + atr * 1.5 * 2).toFixed(2),
-        t2:       (today.close + atr * 1.5 * 3).toFixed(2),
-        stopLoss: (today.close - atr * 1.5).toFixed(2),
-      }});
-    }
-  } catch(e) {}
-
-  // ── 組合 C：爆量反轉型（反彈門檻 3%，美股適配）──
-  try {
-    const blackCount = hist.slice(-5, -1).filter(d => d.close < d.open).length;
-    const low10      = Math.min(...hist.slice(-11, -1).map(d => d.low));
-    const bounce     = (today.close - low10) / low10 * 100;
-    if (blackCount >= 3 && isGreen && volMult >= 1.8 && bounce >= 3) {
-      signals.push({ id: 'C', data: {
-        bounce:   bounce.toFixed(1),
-        volMult:  volMult.toFixed(1),
-        stopLoss: (today.close - atr * 1.5).toFixed(2),
-      }});
-    }
-  } catch(e) {}
-
-  // ── 組合 D：箱型整理突破型（與台股相同，美股無漲跌停效果更好）──
-  try {
-    const box       = hist.slice(-21, -1);
-    const boxHigh   = Math.max(...box.map(d => d.high));
-    const boxLow    = Math.min(...box.map(d => d.low));
-    const boxRange  = (boxHigh - boxLow) / boxLow * 100;
-    const boxVolAvg = usVolAvg(box, 20);
-    const boxVMult  = boxVolAvg > 0 ? today.volume / boxVolAvg : 0;
-    if (boxRange < 8 && today.close > boxHigh && boxVMult >= 1.5 && isGreen) {
-      signals.push({ id: 'D', data: {
-        range:    boxRange.toFixed(1),
-        boxTop:   boxHigh.toFixed(2),
-        volMult:  boxVMult.toFixed(1),
-        entry:    today.close.toFixed(2),
-        stopLoss: (boxHigh - atr * 2).toFixed(2),
-      }});
-    }
-  } catch(e) {}
-
-  // ── 組合 E：強勢慣性型（移除「未鎖漲停」，改為 5日漲幅 < 30%）──
-  try {
-    const price5Ago = hist[n-6] ? hist[n-6].close : null;
-    if (price5Ago) {
-      const gain5  = (today.close - price5Ago) / price5Ago * 100;
-      const volInc = hist[n-3].volume < hist[n-2].volume && hist[n-2].volume < today.volume;
-      if (gain5 > 10 && gain5 < 30 && isGreen && volInc) {
-        signals.push({ id: 'E', data: {
-          gain5:    gain5.toFixed(1),
-          stopLoss: (today.close - atr * 1.0).toFixed(2),
-        }});
-      }
-    }
-  } catch(e) {}
-
-  // ── 組合 F：中小型爆量起漲型（美股：市值 <$20B 估算）──
-  try {
-    const lookback = Math.min(60, n - 1);
-    const hist60   = hist.slice(-lookback - 1, -1);
-    const high60   = Math.max(...hist60.map(d => d.high));
-    const low60    = Math.min(...hist60.map(d => d.low));
-    const range60  = (high60 - low60) / low60 * 100;
-    const notAtTop = today.close < high60 * 0.92;
-    if (volMult >= 2.5 && today.close > prev.high && isGreen && range60 > 15 && notAtTop) {
-      signals.push({ id: 'F', data: {
-        volMult:  volMult.toFixed(1),
-        stopLoss: (today.close - atr * 1.5).toFixed(2),
-      }});
-    }
-  } catch(e) {}
-
-  return signals;
-}
-
-/** 掃描結果寫入 USResults */
-function usSaveResults(results) {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  let   sheet = ss.getSheetByName(SHEET_NAMES.US_RESULTS);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.US_RESULTS);
-
-  sheet.clearContents();
-  const meta = JSON.stringify({
-    lastUpdated:  new Date().toISOString(),
-    count:        results.length,
-    signalCount:  results.filter(r => r.signals && r.signals.length).length,
-  });
-  sheet.getRange('A1').setValue(meta);
-
-  if (results.length > 0) {
-    const rows = results.map(r => [JSON.stringify(r)]);
-    sheet.getRange(2, 1, rows.length, 1).setValues(rows);
-  }
-  Logger.log('usSaveResults：已寫入 ' + results.length + ' 筆');
-}
-
-/** 每日定時觸發美股掃描（台灣時間 11:00） */
-function dailyUSScanStart() {
-  Logger.log('=== 每日美股掃描開始（台灣時間 11:00）===');
-  runUSScan();
-}
-
-
-// ══════════════════════════════════════════════
-// 台股全市場掃描主流程（接力執行）
-// ══════════════════════════════════════════════
 
 // ══════════════════════════════════════════════
 // 全市場掃描主流程（接力執行）
@@ -921,16 +555,22 @@ function geminiAnalyzeAll(stockId, stockName, currentPrice) {
  * 呼叫 Gemini API（帶 Google Search grounding）
  */
 function callGeminiGAS(prompt) {
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-001'];
+  // gemini-2.0-flash 用 v1beta，grounding 格式較新
+  // gemini-1.5-flash 用 v1beta，grounding 格式舊版
+  const models = [
+    { model: 'gemini-2.0-flash', api: 'v1beta', grounding: { googleSearch: {} } },
+    { model: 'gemini-1.5-flash', api: 'v1beta', grounding: { google_search_retrieval: { dynamic_retrieval_config: { mode: 'MODE_DYNAMIC', dynamic_threshold: 0.3 } } } },
+    { model: 'gemini-1.5-flash', api: 'v1beta', grounding: null }  // 不帶 grounding 的 fallback
+  ];
 
-  for (const model of models) {
+  for (const { model, api, grounding } of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${CONFIG.GEMINI_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/${api}/models/${model}:generateContent?key=${CONFIG.GEMINI_KEY}`;
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-        tools: [{ googleSearch: {} }]
       };
+      if (grounding) payload.tools = [grounding];
 
       const res = UrlFetchApp.fetch(url, {
         method: 'post',
@@ -942,34 +582,22 @@ function callGeminiGAS(prompt) {
       const code = res.getResponseCode();
       const body = res.getContentText();
 
-      // 額度耗盡：直接拋出特殊錯誤，不繼續嘗試其他模型
+      Logger.log(`Gemini ${model} → ${code}: ${body.slice(0, 200)}`);
+
       if (code === 429 || body.includes('RESOURCE_EXHAUSTED') || body.includes('quota')) {
         throw new Error('QUOTA_EXCEEDED');
       }
 
-      if (code !== 200) {
-        // 其他錯誤：fallback 不帶 search
-        const payload2 = {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
-        };
-        const res2 = UrlFetchApp.fetch(url, {
-          method: 'post',
-          contentType: 'application/json',
-          payload: JSON.stringify(payload2),
-          muteHttpExceptions: true
-        });
-        if (res2.getResponseCode() !== 200) continue;
-        return extractJson(res2.getContentText());
-      }
+      if (code !== 200) continue;
 
       const json = JSON.parse(body);
       const parts = (json.candidates || [])[0]?.content?.parts || [];
       const text = parts.map(p => p.text || '').join('');
+      if (!text) continue;
       return extractJson(text);
 
     } catch(e) {
-      if (e.message === 'QUOTA_EXCEEDED') throw e; // 直接往上拋，不繼續嘗試
+      if (e.message === 'QUOTA_EXCEEDED') throw e;
       Logger.log(`模型 ${model} 失敗：${e.message}`);
       continue;
     }
@@ -1160,10 +788,19 @@ function runPhase2Batch(stockIds, nameMap) {
       const combo = combos[0];
       const atrMult = { B: 2.0, D: 2.0, A: 1.5, C: 1.5, E: 1.0, F: 1.5 }[combo] || 1.5;
 
-      const stopLoss = Math.round((lastClose - atr * atrMult) * 100) / 100;
-      const target1 = Math.round((lastClose + atr * atrMult * 2) * 100) / 100;
-      const target2 = Math.round((lastClose + atr * atrMult * 3) * 100) / 100;
-      if (stopLoss >= lastClose) return;
+      // 建議進場價：依組合類型，用技術回檔點而非直接用收盤價
+      // A/D 突破型：等回檔 0.3~0.5 ATR 進場，避免追高
+      // B 籌碼型：站上均線後，微幅回檔到收盤 -0.2 ATR
+      // C 反轉型：反彈確認後，接近低點支撐
+      // E 強勢型：不等回檔，直接用收盤（已是強勢慣性，回檔少）
+      // F 小型爆量：保守，等 -0.3 ATR
+      const entryDiscount = { A: 0.4, B: 0.2, C: 0.5, D: 0.35, E: 0.0, F: 0.3 }[combo] || 0.3;
+      const entryPrice = Math.round((lastClose - atr * entryDiscount) * 100) / 100;
+
+      const stopLoss = Math.round((entryPrice - atr * atrMult) * 100) / 100;
+      const target1 = Math.round((entryPrice + atr * atrMult * 2) * 100) / 100;
+      const target2 = Math.round((entryPrice + atr * atrMult * 3) * 100) / 100;
+      if (stopLoss >= entryPrice) return;
 
       // RS（相對強弱，暫時用5日漲幅代替）
       const rs = closes.length >= 5
@@ -1172,9 +809,9 @@ function runPhase2Batch(stockIds, nameMap) {
       results.push({
         id, name: nameMap[id] || '', tier, combo, combos, priority,
         hitCount: hitCombos.length, crossBonus,
-        entryPrice: lastClose, stopLoss, target1, target2,
+        entryPrice, lastClose, stopLoss, target1, target2,
         atr: Math.round(atr * 100) / 100,
-        chaseLimit: Math.round(lastClose * 1.02 * 100) / 100,
+        chaseLimit: Math.round(lastClose * 1.02 * 100) / 100,  // 追價上限仍以收盤價為基準
         rs, itrustBuy: itrustArr.slice(-5).filter(v => v > 0).length,
         foreignBuy: foreignArr.slice(-3).filter(v => v > 0).length,
       });
@@ -1537,6 +1174,75 @@ function loadScanResults() {
 // 股票名稱
 // ══════════════════════════════════════════════
 
+
+// ═══════════════════════════════════════════════════
+// OHLC 代理（供前端呼叫，繞過 CORS）
+// ═══════════════════════════════════════════════════
+function fetchOHLCBatch(market, symbols, dateStr) {
+  const results = {};
+  if (!symbols || symbols.length === 0) return results;
+
+  if (market === 'TW') {
+    // TWSE 單股當日資料
+    const d = (dateStr || getTodayStr()).replace(/-/g, '');
+    symbols.forEach(id => {
+      try {
+        const url = `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${id}&date=${d}&response=json`;
+        const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        const json = JSON.parse(res.getContentText());
+        if (json.stat === 'OK' && json.data && json.data.length > 0) {
+          const row = json.data[json.data.length - 1];
+          const p = s => parseFloat(String(s).replace(/,/g, '')) || 0;
+          results[id] = { open: p(row[3]), high: p(row[4]), low: p(row[5]), close: p(row[6]), date: dateStr };
+        } else {
+          // 收盤前或休市，嘗試 TPEx
+          const tpexUrl = `https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes`;
+          const res2 = UrlFetchApp.fetch(tpexUrl, { muteHttpExceptions: true });
+          const arr = JSON.parse(res2.getContentText());
+          const row2 = arr.find(r => (r.SecuritiesCompanyCode || r.Code) === id);
+          if (row2) {
+            const p = s => parseFloat(String(s).replace(/,/g, '')) || 0;
+            results[id] = {
+              open:  p(row2.Open  || row2.OpeningPrice),
+              high:  p(row2.High  || row2.HighestPrice),
+              low:   p(row2.Low   || row2.LowestPrice),
+              close: p(row2.Close || row2.ClosingPrice),
+              date: dateStr
+            };
+          }
+        }
+      } catch(e) {
+        Logger.log('fetchOHLC TW 失敗 ' + id + ':' + e.message);
+      }
+    });
+  } else if (market === 'US') {
+    // Yahoo Finance
+    symbols.forEach(sym => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`;
+        const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const json = JSON.parse(res.getContentText());
+        const result = json?.chart?.result?.[0];
+        if (!result) return;
+        const ts = result.timestamp || [];
+        const q  = result.indicators?.quote?.[0];
+        if (!q || ts.length === 0) return;
+        const idx = ts.length - 1;
+        results[sym] = {
+          open:  Math.round((q.open[idx]  || 0) * 100) / 100,
+          high:  Math.round((q.high[idx]  || 0) * 100) / 100,
+          low:   Math.round((q.low[idx]   || 0) * 100) / 100,
+          close: Math.round((q.close[idx] || 0) * 100) / 100,
+          date:  dateStr
+        };
+      } catch(e) {
+        Logger.log('fetchOHLC US 失敗 ' + sym + ':' + e.message);
+      }
+    });
+  }
+  return results;
+}
+
 function loadStockNames() {
   // 優先從 ScanTemp 工作表取名稱（Phase1 已帶入，不消耗 UrlFetchApp 配額）
   try {
@@ -1890,130 +1596,4 @@ function setupAll() {
 function testScanNow() {
   Logger.log('=== 手動測試掃描 ===');
   dailyScanStart();
-}
-
-
-// ════════════════════════════════════════════════════
-// US WATCHLIST — GAS 工具函式
-// ════════════════════════════════════════════════════
-
-var US_WATCHLIST_SHEET = 'USWatchlist';
-var US_RESULTS_SHEET   = 'USResults';
-
-/**
- * 讀取 USWatchlist 工作表，回傳自選股陣列
- */
-function loadUSWatchlist() {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(US_WATCHLIST_SHEET);
-  if (!sheet) return [];
-
-  var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
-
-  // 第一行是 header，找欄位 index
-  var header = data[0].map(function(h){ return String(h).toLowerCase().trim(); });
-  var iT = header.indexOf('ticker');
-  var iN = header.indexOf('name');
-  var iS = header.indexOf('sector');
-  var iA = header.indexOf('addedat');
-  if (iT < 0) iT = 0; // fallback: 第一欄是 ticker
-
-  var result = [];
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    var ticker = String(row[iT] || '').trim().toUpperCase();
-    if (!ticker) continue;
-    result.push({
-      ticker:    ticker,
-      name:      iN >= 0 ? String(row[iN] || ticker) : ticker,
-      sector:    iS >= 0 ? String(row[iS] || 'Other') : 'Other',
-      addedAt:   iA >= 0 ? row[iA] : '',
-      price:     null,
-      chgPct:    null,
-      signals:   [],
-      earningsDate: null,
-    });
-  }
-  return result;
-}
-
-/**
- * 把前端的自選股清單寫入 USWatchlist 工作表
- * 如果工作表已有資料，保留 GAS 那邊有但前端沒有的欄位（不覆蓋）
- */
-function saveUSWatchlistToSheet(watchlist) {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(US_WATCHLIST_SHEET);
-  if (!sheet) {
-    sheet = ss.insertSheet(US_WATCHLIST_SHEET);
-  }
-
-  sheet.clearContents();
-  sheet.getRange('A1:D1').setValues([['ticker','name','sector','addedAt']]);
-
-  if (watchlist && watchlist.length > 0) {
-    var rows = watchlist.map(function(s) {
-      return [
-        s.ticker  || '',
-        s.name    || s.ticker || '',
-        s.sector  || 'Other',
-        s.addedAt || new Date().toISOString(),
-      ];
-    });
-    sheet.getRange(2, 1, rows.length, 4).setValues(rows);
-  }
-  Logger.log('USWatchlist 已同步：' + (watchlist ? watchlist.length : 0) + ' 檔');
-}
-
-/**
- * 讀取 USResults 工作表，回傳掃描結果
- */
-function loadUSResults() {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(US_RESULTS_SHEET);
-  if (!sheet) return { meta: {}, results: [] };
-
-  var data = sheet.getDataRange().getValues();
-  if (!data.length) return { meta: {}, results: [] };
-
-  var meta = {};
-  try { meta = JSON.parse(data[0][0]); } catch(e) {}
-
-  var results = [];
-  for (var i = 1; i < data.length; i++) {
-    try {
-      if (data[i][0]) results.push(JSON.parse(data[i][0]));
-    } catch(e) {}
-  }
-  return { meta: meta, results: results };
-}
-
-/**
- * 美股掃描主函式（由 triggerUSScan 呼叫）
- * 如果 us_scanner.gs 已安裝，直接呼叫 runUSScan()
- * 否則這裡有一個基礎版本
- */
-function runUSScan() {
-  // 如果已安裝 us_scanner.gs，它會覆寫這個函式
-  // 這裡是 fallback：直接把 USWatchlist 的資料加上空訊號回傳
-  var watchlist = loadUSWatchlist();
-  if (!watchlist.length) {
-    Logger.log('USWatchlist 是空的，跳過掃描');
-    return;
-  }
-
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(US_RESULTS_SHEET);
-  if (!sheet) sheet = ss.insertSheet(US_RESULTS_SHEET);
-
-  sheet.clearContents();
-  var meta = JSON.stringify({ lastUpdated: new Date().toISOString(), count: watchlist.length, signalCount: 0 });
-  sheet.getRange('A1').setValue(meta);
-
-  if (watchlist.length > 0) {
-    var rows = watchlist.map(function(s) { return [JSON.stringify(s)]; });
-    sheet.getRange(2, 1, rows.length, 1).setValues(rows);
-  }
-  Logger.log('US 基礎掃描完成（無技術指標，需安裝 us_scanner.gs 以啟用完整掃描）');
 }
