@@ -1096,6 +1096,25 @@
     </div>
   </div>
 
+  <!-- 自選清單 + 掃描 -->
+  <div class="order-form-card" style="margin-bottom:1.2rem;">
+    <div class="order-form-title">📋 自選清單與技術分析</div>
+    <div style="font-size:0.8rem;color:var(--text3);margin-bottom:0.8rem;">填入想追蹤的美股代號，系統自動抓取技術指標並評分排名</div>
+    <div style="display:flex;gap:0.6rem;align-items:flex-start;flex-wrap:wrap;">
+      <textarea id="usWatchlistInput" class="form-input"
+        style="flex:1;min-width:200px;height:80px;font-family:var(--font-mono);font-size:0.85rem;resize:vertical;"
+        placeholder="每行一個代號，例如：&#10;NVDA&#10;AAPL&#10;MSFT&#10;TSLA"></textarea>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;">
+        <button class="btn btn-ghost btn-sm" onclick="saveUSWatchlist()">💾 儲存清單</button>
+        <button class="btn btn-primary btn-sm" onclick="runUSAnalysis()">🔍 執行分析</button>
+      </div>
+    </div>
+    <div id="usAnalysisStatus" style="font-size:0.8rem;color:var(--text3);margin-top:0.6rem;font-family:var(--font-mono);"></div>
+  </div>
+
+  <!-- 分析結果 -->
+  <div id="usAnalysisResults" style="margin-bottom:1.5rem;"></div>
+
   <!-- 持倉 & 掛單 -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.5rem;">
     <div class="order-form-card">
@@ -1280,10 +1299,11 @@ let state = {
   // 美股
   usCapital:      10000,
   usCash:         10000,
-  usHoldings:     [],   // { symbol, name, limitPrice, shares, stopLoss, target1, target2, entryDate, status, entryPrice, costBasis }
-  usPending:      [],   // 掛單中，status:'pending'
+  usHoldings:     [],
+  usPending:      [],
   usTrades:       [],
-  usTradeLog:     []
+  usTradeLog:     [],
+  usWatchlist:    []
 };
 
 let assetChartInstance = null;
@@ -2828,6 +2848,128 @@ function processTaiwanOHLC(h, ohlc) {
 }
 
 // ═══════════════════════════════════════════════════
+// 美股自選清單 + 技術分析
+// ═══════════════════════════════════════════════════
+
+function saveUSWatchlist() {
+  const raw = document.getElementById('usWatchlistInput').value;
+  const list = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+  state.usWatchlist = list;
+  saveState();
+  notify(`✓ 已儲存 ${list.length} 支自選股`, 'success');
+}
+
+function loadUSWatchlist() {
+  const el = document.getElementById('usWatchlistInput');
+  if (el && state.usWatchlist?.length > 0) {
+    el.value = state.usWatchlist.join('\n');
+  }
+}
+
+async function runUSAnalysis() {
+  const raw = document.getElementById('usWatchlistInput').value;
+  const symbols = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+  if (symbols.length === 0) { notify('請先填入股票代號', 'error'); return; }
+  if (!state.gasUrl) { notify('請先在設定頁填入 GAS URL', 'error'); return; }
+
+  state.usWatchlist = symbols;
+  saveState();
+
+  const statusEl = document.getElementById('usAnalysisStatus');
+  const resultsEl = document.getElementById('usAnalysisResults');
+  statusEl.textContent = `⏳ 分析中（共 ${symbols.length} 支）...`;
+  resultsEl.innerHTML = '';
+
+  // 透過 GAS 批次抓取 OHLC（5日）
+  const today = todayStr();
+  const ohlcMap = await fetchOHLC_viaGAS('US', symbols, today);
+
+  if (Object.keys(ohlcMap).length === 0) {
+    statusEl.textContent = '❌ 無法取得行情資料，請確認 GAS URL 是否正確';
+    return;
+  }
+
+  // 計算技術指標評分
+  const scored = [];
+  for (const sym of symbols) {
+    const d = ohlcMap[sym];
+    if (!d || !d.close) { continue; }
+
+    let score = 0;
+    const reasons = [];
+
+    // 1. 收盤 > 開盤（紅K）
+    if (d.close > d.open) { score += 1; reasons.push('收紅'); }
+
+    // 2. 振幅（高低差/收盤）> 2% 代表有波動
+    const range = (d.high - d.low) / d.close;
+    if (range > 0.02) { score += 1; reasons.push(`振幅${(range*100).toFixed(1)}%`); }
+
+    // 3. 收盤接近高點（收盤在高低範圍的70%以上）
+    const position = (d.close - d.low) / (d.high - d.low || 1);
+    if (position >= 0.7) { score += 2; reasons.push('收近高點'); }
+    else if (position >= 0.5) { score += 1; reasons.push('收盤中段'); }
+
+    // 4. 漲幅
+    const chg = (d.close - d.open) / d.open * 100;
+    if (chg >= 3) { score += 2; reasons.push(`漲${chg.toFixed(1)}%`); }
+    else if (chg >= 1) { score += 1; reasons.push(`漲${chg.toFixed(1)}%`); }
+    else if (chg < 0) { score -= 1; reasons.push(`跌${Math.abs(chg).toFixed(1)}%`); }
+
+    scored.push({ sym, score, reasons, ...d, chg });
+  }
+
+  // 排序
+  scored.sort((a, b) => b.score - a.score);
+
+  statusEl.textContent = `✓ 分析完成，${scored.length}/${symbols.length} 支取得資料`;
+
+  if (scored.length === 0) {
+    resultsEl.innerHTML = '<p class="text-sm text-muted">無法取得任何股票資料</p>';
+    return;
+  }
+
+  resultsEl.innerHTML = `
+    <div class="order-form-card">
+      <div class="order-form-title">📊 技術分析排名（${today}）</div>
+      <div style="overflow-x:auto;">
+        <table class="holdings-table">
+          <thead>
+            <tr><th>排名</th><th>代號</th><th>收盤</th><th>漲跌%</th><th>高</th><th>低</th><th>評分</th><th>訊號</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${scored.map((s, i) => `
+              <tr>
+                <td class="text-mono text-muted">${i+1}</td>
+                <td class="text-mono" style="font-weight:700;">${s.sym}</td>
+                <td class="text-mono">$${s.close?.toFixed(2)}</td>
+                <td class="text-mono ${s.chg >= 0 ? 'positive' : 'negative'}">${s.chg >= 0 ? '+' : ''}${s.chg?.toFixed(2)}%</td>
+                <td class="text-mono">$${s.high?.toFixed(2)}</td>
+                <td class="text-mono">$${s.low?.toFixed(2)}</td>
+                <td class="text-mono" style="font-weight:700;color:${s.score >= 4 ? 'var(--green)' : s.score >= 2 ? 'var(--yellow)' : 'var(--text3)'};">
+                  ${'⭐'.repeat(Math.max(0, s.score))}${s.score <= 0 ? '—' : ''}
+                </td>
+                <td style="font-size:0.75rem;color:var(--text2);">${s.reasons.join('・')}</td>
+                <td>
+                  <button class="btn btn-primary btn-sm" onclick="quickUSOrder('${s.sym}', ${s.close})">掛單</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function quickUSOrder(symbol, close) {
+  document.getElementById('usOrderSymbol').value = symbol;
+  document.getElementById('usOrderLimit').value = close;
+  document.getElementById('usOrderStop').value = (close * 0.95).toFixed(2);
+  document.getElementById('usOrderTarget1').value = (close * 1.08).toFixed(2);
+  document.getElementById('usOrderTarget2').value = (close * 1.15).toFixed(2);
+  openUSOrderModal();
+}
+
+// ═══════════════════════════════════════════════════
 // 美股 — Yahoo Finance OHLC
 // ═══════════════════════════════════════════════════
 
@@ -2843,6 +2985,7 @@ async function fetchYahooOHLC(symbol, dateStr) {
 function renderUSTab() {
   document.getElementById('usDateBadge').textContent =
     new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', weekday:'short' });
+  loadUSWatchlist();
   renderUSHoldings();
   renderUSPending();
   renderUSTradeHist();
