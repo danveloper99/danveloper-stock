@@ -827,6 +827,125 @@
   .mb-2 { margin-bottom: 1rem; }
   .w-full { width: 100%; }
   .justify-between { justify-content: space-between; }
+
+/* ══════════════════════════════════════════
+   TAB 5 : US Watchlist — Morandi Theme
+   ══════════════════════════════════════════ */
+:root {
+  --us-bg1: #1a1e22;
+  --us-bg2: #20262c;
+  --us-bg3: #252d34;
+  --us-bg4: #2c3640;
+  --us-border: rgba(255,255,255,0.07);
+  --us-border2: rgba(255,255,255,0.12);
+  --us-text: #d4cfc9;
+  --us-text2: #9a9590;
+  --us-text3: #636059;
+  --us-sage: #7a9e8e;
+  --us-sage2: #5c8070;
+  --us-sand: #c4a882;
+  --us-sand2: #a88e6a;
+  --us-rose: #b07878;
+  --us-blue: #7899b0;
+  --us-green: #6e9e7a;
+  --us-red: #b07070;
+  --font-mono: 'SF Mono','Fira Code','Consolas',monospace;
+  --font-body: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+#tab4 { background: var(--us-bg1); min-height: 100vh; padding: 1.6rem !important; font-family: var(--font-body); color: var(--us-text); }
+.us-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.6rem; padding-bottom: 1.2rem; border-bottom: 0.5px solid var(--us-border); }
+.us-brand-eye { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--us-text3); margin-bottom: 4px; }
+.us-brand-title { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; color: var(--us-text); line-height: 1; }
+.us-brand-title em { color: var(--us-sage); font-style: normal; }
+.us-brand-sub { font-size: 11px; color: var(--us-text3); margin-top: 5px; letter-spacing: 0.04em; }
+.us-market-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--us-bg3); border: 0.5px solid var(--us-border2); border-radius: 20px; font-size: 11px; color: var(--us-text2); font-family: var(--font-mono); }
+.us-mled { width: 6px; height: 6px; border-radius: 50%; background: var(--us-text3); transition: background 0.3s; }
+.us-mled.open { background: var(--us-green); box-shadow: 0 0 6px var(--us-green); }
+.us-mled.closed { background: var(--us-red); }
+.us-mled.pre { background: var(--us-sand); }
+.us-scan-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: var(--us-sage2); border: none; border-radius: 7px; color: #fff; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.14s; letter-spacing: 0.02em; }
+.us-scan-btn:hover { background: var(--us-sage); transform: translateY(-1px); }
+.us-scan-btn:active { transform: translateY(0); }
+.us-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.4rem; }
+.us-stat { background: var(--us-bg2); border: 0.5px solid var(--us-border); border-radius: 10px; padding: 12px 14px; }
+.us-stat-lbl { font-size: 10px; color: var(--us-text3); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px; }
+.us-stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); color: var(--us-text); line-height: 1; }
+.us-stat-val.sage { color: var(--us-sage); }
+.us-stat-val.sand { color: var(--us-sand); }
+.us-stat-val.rose { color: var(--us-rose); }
+.us-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+.us-search { flex: 1; min-width: 160px; padding: 7px 12px; background: var(--us-bg3); border: 0.5px solid var(--us-border2); border-radius: 7px; color: var(--us-text); font-size: 12px; font-family: var(--font-body); outline: none; }
+.us-search::placeholder { color: var(--us-text3); }
+.us-search:focus { border-color: var(--us-sage); }
+.us-add-form { display: flex; gap: 6px; align-items: center; }
+.us-add-input { width: 90px; padding: 7px 10px; background: var(--us-bg3); border: 0.5px solid var(--us-border2); border-radius: 7px; color: var(--us-text); font-size: 12px; font-family: var(--font-mono); text-transform: uppercase; outline: none; }
+.us-add-input:focus { border-color: var(--us-sage); }
+.us-add-input::placeholder { color: var(--us-text3); text-transform: none; }
+.us-btn { padding: 7px 13px; border: 0.5px solid var(--us-border2); border-radius: 7px; font-size: 12px; cursor: pointer; font-family: var(--font-body); transition: all 0.14s; background: transparent; color: var(--us-text2); }
+.us-btn:hover { border-color: var(--us-sage); color: var(--us-sage); }
+.us-btn.primary { background: var(--us-sage2); border-color: var(--us-sage2); color: #fff; }
+.us-btn.primary:hover { background: var(--us-sage); border-color: var(--us-sage); }
+.us-btn.danger { border-color: var(--us-rose); color: var(--us-rose); }
+.us-btn.danger:hover { background: var(--us-rose); color: #fff; }
+.us-list-wrap { background: var(--us-bg2); border: 0.5px solid var(--us-border); border-radius: 12px; overflow: hidden; }
+.us-list-header { display: grid; grid-template-columns: 28px 72px 1fr 90px 90px 80px 90px; gap: 0; padding: 8px 14px; background: var(--us-bg3); border-bottom: 0.5px solid var(--us-border); }
+.us-list-header > * { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--us-text3); font-weight: 500; }
+.us-list-header > *:not(:first-child) { text-align: right; }
+.us-stock-row { display: grid; grid-template-columns: 28px 72px 1fr 90px 90px 80px 90px; gap: 0; padding: 11px 14px; border-bottom: 0.5px solid var(--us-border); align-items: center; transition: background 0.1s; cursor: default; }
+.us-stock-row:last-child { border-bottom: none; }
+.us-stock-row:hover { background: var(--us-bg3); }
+.us-stock-row > * { font-size: 12px; }
+.us-stock-row > *:not(:first-child):not(:nth-child(2)):not(:nth-child(3)) { text-align: right; font-family: var(--font-mono); }
+.us-rank { color: var(--us-text3); font-size: 10px; font-family: var(--font-mono); text-align: center; }
+.us-ticker { font-weight: 700; font-size: 13px; color: var(--us-text); font-family: var(--font-mono); letter-spacing: 0.04em; }
+.us-name-sector { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.us-name { font-size: 12px; color: var(--us-text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.us-sector { font-size: 10px; color: var(--us-text3); }
+.us-price { color: var(--us-text); }
+.us-chg.pos { color: var(--us-green); }
+.us-chg.neg { color: var(--us-red); }
+.us-chg.flat { color: var(--us-text3); }
+.us-signals { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; }
+.us-sig-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.03em; }
+.us-sig-badge.combo-A { background: rgba(122,158,142,0.18); color: var(--us-sage); }
+.us-sig-badge.combo-C { background: rgba(196,168,130,0.18); color: var(--us-sand); }
+.us-sig-badge.combo-D { background: rgba(120,153,176,0.18); color: var(--us-blue); }
+.us-sig-badge.combo-E { background: rgba(176,120,120,0.18); color: var(--us-rose); }
+.us-sig-badge.combo-F { background: rgba(110,158,122,0.18); color: var(--us-green); }
+.us-sig-badge.combo-B { background: rgba(255,200,100,0.15); color: #c8a060; }
+.us-earn-chip { font-size: 9px; padding: 2px 6px; background: rgba(176,120,120,0.15); color: var(--us-rose); border-radius: 3px; font-family: var(--font-mono); }
+.us-row-actions { display: flex; gap: 5px; justify-content: flex-end; }
+.us-row-btn { font-size: 10px; padding: 3px 7px; border: 0.5px solid var(--us-border2); border-radius: 4px; background: transparent; color: var(--us-text3); cursor: pointer; transition: all 0.12s; }
+.us-row-btn:hover { border-color: var(--us-rose); color: var(--us-rose); }
+.us-empty { padding: 3rem; text-align: center; color: var(--us-text3); font-size: 13px; }
+/* Scan Overlay */
+.us-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 999; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+.us-overlay.show { opacity: 1; pointer-events: auto; }
+.us-modal-box { background: var(--us-bg2); border: 0.5px solid var(--us-border2); border-radius: 14px; padding: 1.6rem; width: 360px; max-width: 92vw; }
+.us-modal-title { font-size: 13px; font-weight: 600; color: var(--us-text); margin-bottom: 1.2rem; letter-spacing: 0.02em; }
+.us-steps { display: flex; flex-direction: column; gap: 9px; margin-bottom: 1rem; }
+.us-step { display: flex; align-items: center; gap: 10px; }
+.us-step-icon { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--us-border2); display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; transition: all 0.2s; }
+.us-step-icon.wait { border-color: var(--us-border2); color: var(--us-text3); }
+.us-step-icon.run { border-color: var(--us-sand); color: var(--us-sand); animation: us-pulse 1s infinite; }
+.us-step-icon.done { border-color: var(--us-sage); background: rgba(122,158,142,0.15); color: var(--us-sage); }
+@keyframes us-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.us-step-txt { font-size: 12px; color: var(--us-text3); transition: color 0.2s; }
+.us-step-txt.run { color: var(--us-text); }
+.us-step-txt.done { color: var(--us-text2); }
+.us-pbar-wrap { height: 2px; background: var(--us-border); border-radius: 2px; margin: 1.1rem 0; overflow: hidden; }
+.us-pbar { height: 100%; background: var(--us-sand); border-radius: 2px; transition: width 0.4s ease; }
+.us-scan-note { font-size: 11px; color: var(--us-text2); min-height: 16px; font-family: var(--font-mono); }
+.us-modal-close { width: 100%; margin-top: 1.1rem; padding: 9px; background: var(--us-bg3); border: 0.5px solid var(--us-border2); border-radius: 7px; color: var(--us-text2); font-family: var(--font-body); font-size: 12px; cursor: pointer; transition: all 0.14s; }
+.us-modal-close:hover:not(:disabled) { border-color: var(--us-sage); color: var(--us-sage); }
+.us-modal-close:disabled { opacity: 0.35; cursor: default; }
+@media(max-width:700px){
+  .us-stats { grid-template-columns: repeat(2,1fr); }
+  .us-list-header, .us-stock-row { grid-template-columns: 28px 64px 1fr 80px 76px; }
+  .us-list-header > *:nth-child(6), .us-stock-row > *:nth-child(6),
+  .us-list-header > *:nth-child(7), .us-stock-row > *:nth-child(7) { display: none; }
+}
+
 </style>
 <script>/*!
  * Chart.js v4.5.1
@@ -865,6 +984,7 @@
   <div class="tab" onclick="switchTab(1)"><span class="tab-num">2</span>模擬下單</div>
   <div class="tab" onclick="switchTab(2)"><span class="tab-num">3</span>儀表板</div>
   <div class="tab" onclick="switchTab(3)"><span class="tab-num">4</span>🇺🇸 美股追蹤</div>
+  <div class="tab" onclick="switchTab(4)"><span class="tab-num">5</span>📋 US Watchlist</div>
 </div>
 
 <!-- ═══════════════════════════════════════ TAB 1 ═══════════════════════════════════════ -->
@@ -1096,23 +1216,58 @@
     </div>
   </div>
 
-  <!-- 自選清單 + 掃描 -->
-  <div class="order-form-card" style="margin-bottom:1.2rem;">
-    <div class="order-form-title">📋 自選清單與技術分析</div>
-    <div style="font-size:0.8rem;color:var(--text3);margin-bottom:0.8rem;">填入想追蹤的美股代號，系統自動抓取技術指標並評分排名</div>
-    <div style="display:flex;gap:0.6rem;align-items:flex-start;flex-wrap:wrap;">
-      <textarea id="usWatchlistInput" class="form-input"
-        style="flex:1;min-width:200px;height:80px;font-family:var(--font-mono);font-size:0.85rem;resize:vertical;"
-        placeholder="每行一個代號，例如：&#10;NVDA&#10;AAPL&#10;MSFT&#10;TSLA"></textarea>
-      <div style="display:flex;flex-direction:column;gap:0.5rem;">
-        <button class="btn btn-ghost btn-sm" onclick="saveUSWatchlist()">💾 儲存清單</button>
-        <button class="btn btn-primary btn-sm" onclick="runUSAnalysis()">🔍 執行分析</button>
-      </div>
+  <!-- 統計資訊列 -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.8rem;margin-bottom:1.2rem;" id="usStatsBar">
+    <div class="order-form-card" style="padding:0.8rem;text-align:center;">
+      <div style="font-size:0.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">自選清單</div>
+      <div class="text-mono" style="font-size:1.4rem;font-weight:700;color:var(--accent)" id="usStatWatchCount">0</div>
     </div>
-    <div id="usAnalysisStatus" style="font-size:0.8rem;color:var(--text3);margin-top:0.6rem;font-family:var(--font-mono);"></div>
+    <div class="order-form-card" style="padding:0.8rem;text-align:center;">
+      <div style="font-size:0.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">掃描訊號</div>
+      <div class="text-mono" style="font-size:1.4rem;font-weight:700;color:var(--green)" id="usStatSignalCount">0</div>
+    </div>
+    <div class="order-form-card" style="padding:0.8rem;text-align:center;">
+      <div style="font-size:0.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">持倉市值</div>
+      <div class="text-mono" style="font-size:1.4rem;font-weight:700;" id="usStatHoldValue">$0</div>
+    </div>
+    <div class="order-form-card" style="padding:0.8rem;text-align:center;">
+      <div style="font-size:0.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">可用資金</div>
+      <div class="text-mono" style="font-size:1.4rem;font-weight:700;color:var(--yellow)" id="usStatCash">$0</div>
+    </div>
   </div>
 
-  <!-- 分析結果 -->
+  <!-- 自選清單 + 掃描 -->
+  <div class="order-form-card" style="margin-bottom:1.2rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+      <div class="order-form-title" style="margin-bottom:0;">📋 自選清單與技術掃描</div>
+      <div style="display:flex;gap:0.4rem;align-items:center;">
+        <!-- 模式切換 -->
+        <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.78rem;">
+          <button id="usModeLocal" class="us-mode-btn active" onclick="setUSMode('local')"
+            style="padding:0.3rem 0.7rem;background:var(--accent);color:#000;border:none;cursor:pointer;font-size:0.78rem;">⚡ 即時</button>
+          <button id="usModeGAS" class="us-mode-btn" onclick="setUSMode('gas')"
+            style="padding:0.3rem 0.7rem;background:transparent;color:var(--text2);border:none;cursor:pointer;font-size:0.78rem;">🔬 深度 GAS</button>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:0.78rem;color:var(--text3);margin-bottom:0.8rem;" id="usModeDesc">
+      <b style="color:var(--accent);">⚡ 即時模式</b>：直接抓當日 OHLC，快速評分排名（5秒內）
+    </div>
+    <div style="display:flex;gap:0.6rem;align-items:flex-start;flex-wrap:wrap;">
+      <textarea id="usWatchlistInput" class="form-input"
+        style="flex:1;min-width:200px;height:90px;font-family:var(--font-mono);font-size:0.85rem;resize:vertical;"
+        placeholder="每行一個代號，例如：&#10;NVDA&#10;AAPL&#10;MSFT&#10;TSLA&#10;AMZN&#10;META"></textarea>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;min-width:110px;">
+        <button class="btn btn-ghost btn-sm" onclick="saveUSWatchlistAndSync()">💾 儲存 + 同步</button>
+        <button class="btn btn-primary btn-sm" id="usRunBtn" onclick="runUSAnalysis()">🔍 執行分析</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadUSResultsFromGAS()" id="usLoadResultsBtn"
+          style="display:none;">📥 載入結果</button>
+      </div>
+    </div>
+    <div id="usAnalysisStatus" style="font-size:0.8rem;color:var(--text3);margin-top:0.6rem;font-family:var(--font-mono);min-height:1.2rem;"></div>
+  </div>
+
+  <!-- 掃描結果（技術訊號清單）-->
   <div id="usAnalysisResults" style="margin-bottom:1.5rem;"></div>
 
   <!-- 持倉 & 掛單 -->
@@ -1138,6 +1293,87 @@
     </div>
   </div>
 </div>
+
+
+<!-- ══════════════════════════════════════════
+     TAB 5 : US Watchlist
+     ══════════════════════════════════════════ -->
+<div class="tab-content" id="tab4">
+
+  <!-- Header -->
+  <div class="us-header">
+    <div>
+      <div class="us-brand-eye">DANVELOPER · Stock Simulator</div>
+      <div class="us-brand-title"><em>US</em> Watchlist</div>
+      <div class="us-brand-sub">盤後掃描 · 自選股清單 · 六組組合訊號</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:9px;">
+      <div class="us-market-pill">
+        <div class="us-mled" id="us-mled"></div>
+        <span id="us-mstatus">確認中</span>
+        <span id="us-mtime" style="color:var(--us-text3);margin-left:3px;"></span>
+      </div>
+      <button class="us-scan-btn" onclick="usOpenScan()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        盤後掃描
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="us-stats">
+    <div class="us-stat"><div class="us-stat-lbl">追蹤個股</div><div class="us-stat-val sage" id="us-s-total">0</div></div>
+    <div class="us-stat"><div class="us-stat-lbl">今日訊號</div><div class="us-stat-val sand" id="us-s-signals">—</div></div>
+    <div class="us-stat"><div class="us-stat-lbl">財報警示</div><div class="us-stat-val" id="us-s-earn" style="color:var(--us-rose);">—</div></div>
+    <div class="us-stat"><div class="us-stat-lbl">最後掃描</div><div class="us-stat-val" id="us-s-scan" style="font-size:12px;color:var(--us-text3);">—</div></div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="us-toolbar">
+    <input class="us-search" type="text" id="us-search" placeholder="搜尋代號或名稱…" oninput="usRender()">
+    <div class="us-add-form">
+      <input class="us-add-input" type="text" id="us-add-ticker" placeholder="代號 e.g. NVDA" maxlength="10">
+      <input class="us-add-input" type="text" id="us-add-name" placeholder="名稱（選填）" style="width:110px;">
+      <input class="us-add-input" type="text" id="us-add-sector" placeholder="產業（選填）" style="width:110px;">
+      <button class="us-btn primary" onclick="usAddStock()">＋ 加入</button>
+    </div>
+    <button class="us-btn" onclick="usClearAll()" style="margin-left:auto;">🗑 清空</button>
+  </div>
+
+  <!-- List Header -->
+  <div class="us-list-wrap">
+    <div class="us-list-header">
+      <div>#</div>
+      <div>代號</div>
+      <div>名稱 / 產業</div>
+      <div>收盤價</div>
+      <div>漲跌%</div>
+      <div>訊號</div>
+      <div>動作</div>
+    </div>
+    <div id="us-list-body"></div>
+  </div>
+
+</div>
+
+<!-- US Scan Overlay -->
+<div class="us-overlay" id="us-overlay">
+  <div class="us-modal-box">
+    <div class="us-modal-title">// 盤後掃描 — US Watchlist</div>
+    <div class="us-steps" id="us-steps">
+      <div class="us-step" id="us-step-0"><div class="us-step-icon wait" id="us-sicon-0">○</div><div class="us-step-txt wait" id="us-stxt-0">同步自選清單至 GAS</div></div>
+      <div class="us-step" id="us-step-1"><div class="us-step-icon wait" id="us-sicon-1">○</div><div class="us-step-txt wait" id="us-stxt-1">抓取 90 天 OHLCV（Yahoo Finance）</div></div>
+      <div class="us-step" id="us-step-2"><div class="us-step-icon wait" id="us-sicon-2">○</div><div class="us-step-txt wait" id="us-stxt-2">執行組合 A（趨勢突破）</div></div>
+      <div class="us-step" id="us-step-3"><div class="us-step-icon wait" id="us-sicon-3">○</div><div class="us-step-txt wait" id="us-stxt-3">執行組合 C/D（反轉 / 箱型）</div></div>
+      <div class="us-step" id="us-step-4"><div class="us-step-icon wait" id="us-sicon-4">○</div><div class="us-step-txt wait" id="us-stxt-4">執行組合 E/F（動能 / 爆量）</div></div>
+      <div class="us-step" id="us-step-5"><div class="us-step-icon wait" id="us-sicon-5">○</div><div class="us-step-txt wait" id="us-stxt-5">整理訊號 · 更新清單</div></div>
+    </div>
+    <div class="us-pbar-wrap"><div class="us-pbar" id="us-pbar" style="width:4%;"></div></div>
+    <div class="us-scan-note" id="us-note">準備中…</div>
+    <button class="us-modal-close" id="us-close-btn" disabled onclick="usCloseScan()">請等待掃描完成</button>
+  </div>
+</div>
+
 
 <!-- 美股下單 Modal -->
 <div class="modal-overlay" id="usOrderModal">
@@ -1493,7 +1729,7 @@ function resetAll() {
   const tok = state.token;
   const gas = state.gasUrl;
   const gem = state.geminiKey;
-  state = { capital: cap, token: tok, gasUrl: gas, geminiKey: gem, startDate: state.startDate, cash: cap, holdings: [], trades: [], dailySnapshots: [], recommendations: [], tradeLog: [] };
+  state = { capital: cap, token: tok, gasUrl: gas, geminiKey: gem, startDate: state.startDate, cash: cap, holdings: [], trades: [], dailySnapshots: [], recommendations: [], tradeLog: [], usCapital: state.usCapital||10000, usCash: state.usCapital||10000, usHoldings: [], usPending: [], usTrades: [], usTradeLog: [], usWatchlist: [] };
   saveState();
   closeSettings();
   updateUI();
@@ -2846,15 +3082,67 @@ function processTaiwanOHLC(h, ohlc) {
 }
 
 // ═══════════════════════════════════════════════════
-// 美股自選清單 + 技術分析
+// 美股 — 模式切換 & 自選清單管理
 // ═══════════════════════════════════════════════════
+
+let usMode = 'local'; // 'local' | 'gas'
+
+function setUSMode(mode) {
+  usMode = mode;
+  const localBtn = document.getElementById('usModeLocal');
+  const gasBtn   = document.getElementById('usModeGAS');
+  const desc     = document.getElementById('usModeDesc');
+  const runBtn   = document.getElementById('usRunBtn');
+  const loadBtn  = document.getElementById('usLoadResultsBtn');
+
+  if (mode === 'local') {
+    localBtn.style.background = 'var(--accent)'; localBtn.style.color = '#000';
+    gasBtn.style.background   = 'transparent';   gasBtn.style.color   = 'var(--text2)';
+    desc.innerHTML = '<b style="color:var(--accent);">⚡ 即時模式</b>：直接抓當日 OHLC，快速評分排名（5秒內）';
+    runBtn.textContent = '🔍 執行分析';
+    loadBtn.style.display = 'none';
+  } else {
+    gasBtn.style.background   = 'var(--accent)'; gasBtn.style.color = '#000';
+    localBtn.style.background = 'transparent';   localBtn.style.color = 'var(--text2)';
+    desc.innerHTML = '<b style="color:var(--green);">🔬 深度 GAS 模式</b>：呼叫 GAS 後端，抓 90 天歷史跑五組技術組合（A/C/D/E/F），需 30-120 秒';
+    runBtn.textContent = '🚀 GAS 深度掃描';
+    loadBtn.style.display = 'inline-block';
+  }
+}
 
 function saveUSWatchlist() {
   const raw = document.getElementById('usWatchlistInput').value;
-  const list = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+  const list = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{1,5}$/.test(s));
   state.usWatchlist = list;
   saveState();
+  usUpdateStats();
   notify(`✓ 已儲存 ${list.length} 支自選股`, 'success');
+}
+
+async function saveUSWatchlistAndSync() {
+  const raw = document.getElementById('usWatchlistInput').value;
+  const list = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{1,5}$/.test(s));
+  if (list.length === 0) { notify('請先填入股票代號', 'error'); return; }
+  state.usWatchlist = list;
+  saveState();
+  usUpdateStats();
+
+  // 同步至 GAS
+  if (state.gasUrl) {
+    try {
+      const items = list.map(t => ({ ticker: t, name: '', sector: '' }));
+      const r = await gasFetch({ action: 'saveUSWatchlist', items });
+      if (r.status === 'ok') {
+        notify(`✓ 已儲存 ${list.length} 支，並同步至 GAS Sheet`, 'success');
+      } else {
+        notify(`✓ 本地已儲存，GAS 同步失敗：${r.msg||''}`, 'warning');
+      }
+    } catch(e) {
+      notify(`✓ 本地已儲存，GAS 連線失敗`, 'warning');
+    }
+  } else {
+    notify(`✓ 已儲存 ${list.length} 支（未設 GAS URL，僅本地）`, 'success');
+  }
 }
 
 function loadUSWatchlist() {
@@ -2864,93 +3152,156 @@ function loadUSWatchlist() {
   }
 }
 
+// ─────────────────────────────────────────
+// 執行分析（依模式）
+// ─────────────────────────────────────────
+
 async function runUSAnalysis() {
-  const raw = document.getElementById('usWatchlistInput').value;
-  const symbols = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+  if (usMode === 'gas') { await runUSAnalysisGAS(); return; }
+  await runUSAnalysisLocal();
+}
+
+// ── 即時模式：當日 OHLC 快速評分 ──
+async function runUSAnalysisLocal() {
+  const raw     = document.getElementById('usWatchlistInput').value;
+  const symbols = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{1,5}$/.test(s));
   if (symbols.length === 0) { notify('請先填入股票代號', 'error'); return; }
   if (!state.gasUrl) { notify('請先在設定頁填入 GAS URL', 'error'); return; }
 
-  state.usWatchlist = symbols;
-  saveState();
-
-  const statusEl = document.getElementById('usAnalysisStatus');
+  state.usWatchlist = symbols; saveState();
+  const statusEl  = document.getElementById('usAnalysisStatus');
   const resultsEl = document.getElementById('usAnalysisResults');
-  statusEl.textContent = `⏳ 分析中（共 ${symbols.length} 支）...`;
-  resultsEl.innerHTML = '';
+  statusEl.textContent = `⏳ 抓取中（共 ${symbols.length} 支）...`;
+  resultsEl.innerHTML  = '';
 
-  // 透過 GAS 批次抓取 OHLC（5日）
-  const today = todayStr();
+  const today   = todayStr();
   const ohlcMap = await fetchOHLC_viaGAS('US', symbols, today);
 
   if (Object.keys(ohlcMap).length === 0) {
-    statusEl.textContent = '❌ 無法取得行情資料，請確認 GAS URL 是否正確';
+    statusEl.textContent = '❌ 無法取得行情資料，請確認 GAS URL';
     return;
   }
 
-  // 計算技術指標評分
   const scored = [];
   for (const sym of symbols) {
     const d = ohlcMap[sym];
-    if (!d || !d.close) { continue; }
+    if (!d || !d.close) continue;
 
     let score = 0;
-    const reasons = [];
+    const signals = [];
 
-    // 1. 收盤 > 開盤（紅K）
-    if (d.close > d.open) { score += 1; reasons.push('收紅'); }
-
-    // 2. 振幅（高低差/收盤）> 2% 代表有波動
-    const range = (d.high - d.low) / d.close;
-    if (range > 0.02) { score += 1; reasons.push(`振幅${(range*100).toFixed(1)}%`); }
-
-    // 3. 收盤接近高點（收盤在高低範圍的70%以上）
+    if (d.close > d.open)                                     { score += 1; signals.push('收紅'); }
+    const range    = (d.high - d.low) / d.close;
+    if (range > 0.02)                                         { score += 1; signals.push(`振幅${(range*100).toFixed(1)}%`); }
     const position = (d.close - d.low) / (d.high - d.low || 1);
-    if (position >= 0.7) { score += 2; reasons.push('收近高點'); }
-    else if (position >= 0.5) { score += 1; reasons.push('收盤中段'); }
-
-    // 4. 漲幅
+    if (position >= 0.7)                                      { score += 2; signals.push('收近高點'); }
+    else if (position >= 0.5)                                 { score += 1; signals.push('收盤中段'); }
     const chg = (d.close - d.open) / d.open * 100;
-    if (chg >= 3) { score += 2; reasons.push(`漲${chg.toFixed(1)}%`); }
-    else if (chg >= 1) { score += 1; reasons.push(`漲${chg.toFixed(1)}%`); }
-    else if (chg < 0) { score -= 1; reasons.push(`跌${Math.abs(chg).toFixed(1)}%`); }
+    if      (chg >= 3) { score += 2; signals.push(`漲${chg.toFixed(1)}%`); }
+    else if (chg >= 1) { score += 1; signals.push(`漲${chg.toFixed(1)}%`); }
+    else if (chg < 0)  { score -= 1; signals.push(`跌${Math.abs(chg).toFixed(1)}%`); }
 
-    scored.push({ sym, score, reasons, ...d, chg });
+    scored.push({ sym, score, signals, chg, combo: '即時', ...d });
   }
-
-  // 排序
   scored.sort((a, b) => b.score - a.score);
-
   statusEl.textContent = `✓ 分析完成，${scored.length}/${symbols.length} 支取得資料`;
+  renderUSAnalysisTable(scored, today, '即時');
+  usUpdateStats(scored.length);
+}
 
-  if (scored.length === 0) {
-    resultsEl.innerHTML = '<p class="text-sm text-muted">無法取得任何股票資料</p>';
-    return;
+// ── GAS 深度掃描 ──
+async function runUSAnalysisGAS() {
+  if (!state.gasUrl) { notify('請先在設定頁填入 GAS URL', 'error'); return; }
+
+  const raw     = document.getElementById('usWatchlistInput').value;
+  const symbols = raw.split(/[\n,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{1,5}$/.test(s));
+  if (symbols.length === 0) { notify('請先填入股票代號', 'error'); return; }
+
+  state.usWatchlist = symbols; saveState();
+  const btn      = document.getElementById('usRunBtn');
+  const statusEl = document.getElementById('usAnalysisStatus');
+  const resultsEl = document.getElementById('usAnalysisResults');
+
+  btn.disabled   = true; btn.textContent = '⏳ 掃描中...';
+  statusEl.textContent = `⏳ 呼叫 GAS 後端掃描 ${symbols.length} 支（90天歷史 + 五組組合）...`;
+  resultsEl.innerHTML  = '';
+
+  try {
+    // 先同步清單
+    const items = symbols.map(t => ({ ticker: t, name: '', sector: '' }));
+    await gasFetch({ action: 'saveUSWatchlist', items });
+
+    // 觸發掃描
+    const res = await gasFetch({ action: 'triggerUSScan' });
+
+    if (res.status === 'ok' && res.results) {
+      // 直接拿到結果（< 30 檔同步執行）
+      statusEl.textContent = `✓ GAS 掃描完成，${res.count || res.results.length} 支觸發訊號`;
+      renderUSGASResults(res.results);
+      usUpdateStats(res.results.length);
+    } else if (res.status === 'ok') {
+      // 排程執行中
+      statusEl.innerHTML = `⏳ ${res.msg || '掃描已排程'} <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" onclick="loadUSResultsFromGAS()">📥 查詢結果</button>`;
+      document.getElementById('usLoadResultsBtn').style.display = 'inline-block';
+    } else {
+      statusEl.textContent = '❌ ' + (res.msg || '掃描失敗');
+    }
+  } catch(e) {
+    statusEl.textContent = '❌ GAS 連線失敗：' + e.message;
   }
+  btn.disabled = false; btn.textContent = '🚀 GAS 深度掃描';
+}
 
+// 主動查詢 GAS 最新掃描結果
+async function loadUSResultsFromGAS() {
+  if (!state.gasUrl) { notify('請先填入 GAS URL', 'error'); return; }
+  const statusEl = document.getElementById('usAnalysisStatus');
+  statusEl.textContent = '⏳ 載入 GAS 掃描結果...';
+  try {
+    const res = await gasFetch_GET('getUSResults');
+    if (res.status === 'ok' && res.data) {
+      const data = res.data.filter(r => r.ticker);
+      statusEl.textContent = `✓ 已載入 ${data.length} 筆 GAS 掃描結果`;
+      renderUSGASResults(data);
+      usUpdateStats(data.length);
+    } else {
+      statusEl.textContent = '❌ ' + (res.msg || '無資料');
+    }
+  } catch(e) {
+    statusEl.textContent = '❌ GAS 連線失敗';
+  }
+}
+
+// ─────────────────────────────────────────
+// 渲染函式
+// ─────────────────────────────────────────
+
+function renderUSAnalysisTable(scored, date, mode) {
+  const resultsEl = document.getElementById('usAnalysisResults');
+  if (!scored || scored.length === 0) {
+    resultsEl.innerHTML = '<p class="text-sm text-muted">無符合條件的個股</p>'; return;
+  }
   resultsEl.innerHTML = `
     <div class="order-form-card">
-      <div class="order-form-title">📊 技術分析排名（${today}）</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+        <div class="order-form-title" style="margin:0;">📊 技術排名 — ${date} <span style="font-size:0.75rem;color:var(--text3);font-weight:400;">[${mode}]</span></div>
+      </div>
       <div style="overflow-x:auto;">
         <table class="holdings-table">
-          <thead>
-            <tr><th>排名</th><th>代號</th><th>收盤</th><th>漲跌%</th><th>高</th><th>低</th><th>評分</th><th>訊號</th><th></th></tr>
-          </thead>
+          <thead><tr><th>#</th><th>代號</th><th>收盤</th><th>漲跌%</th><th>高/低</th><th>評分</th><th>訊號</th><th></th></tr></thead>
           <tbody>
             ${scored.map((s, i) => `
               <tr>
-                <td class="text-mono text-muted">${i+1}</td>
+                <td class="text-mono text-muted" style="font-size:0.8rem;">${i+1}</td>
                 <td class="text-mono" style="font-weight:700;">${s.sym}</td>
-                <td class="text-mono">$${s.close?.toFixed(2)}</td>
-                <td class="text-mono ${s.chg >= 0 ? 'positive' : 'negative'}">${s.chg >= 0 ? '+' : ''}${s.chg?.toFixed(2)}%</td>
-                <td class="text-mono">$${s.high?.toFixed(2)}</td>
-                <td class="text-mono">$${s.low?.toFixed(2)}</td>
+                <td class="text-mono">$${(s.close||0).toFixed(2)}</td>
+                <td class="text-mono ${s.chg >= 0 ? 'positive' : 'negative'}">${s.chg >= 0 ? '+' : ''}${(s.chg||0).toFixed(2)}%</td>
+                <td class="text-mono text-muted" style="font-size:0.8rem;">$${(s.high||0).toFixed(2)} / $${(s.low||0).toFixed(2)}</td>
                 <td class="text-mono" style="font-weight:700;color:${s.score >= 4 ? 'var(--green)' : s.score >= 2 ? 'var(--yellow)' : 'var(--text3)'};">
-                  ${'⭐'.repeat(Math.max(0, s.score))}${s.score <= 0 ? '—' : ''}
+                  ${s.score >= 4 ? '⭐'.repeat(Math.min(s.score,5)) : s.score >= 2 ? '★★' : '—'}
                 </td>
-                <td style="font-size:0.75rem;color:var(--text2);">${s.reasons.join('・')}</td>
-                <td>
-                  <button class="btn btn-primary btn-sm" onclick="quickUSOrder('${s.sym}', ${s.close})">掛單</button>
-                </td>
+                <td style="font-size:0.75rem;color:var(--text2);">${s.signals ? (Array.isArray(s.signals) ? s.signals.join('・') : s.signals) : ''}</td>
+                <td><button class="btn btn-primary btn-sm" onclick="quickUSOrder('${s.sym}',${s.close||0})">掛單</button></td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -2958,27 +3309,74 @@ async function runUSAnalysis() {
     </div>`;
 }
 
-function quickUSOrder(symbol, close) {
-  document.getElementById('usOrderSymbol').value = symbol;
-  document.getElementById('usOrderLimit').value = close;
-  document.getElementById('usOrderStop').value = (close * 0.95).toFixed(2);
-  document.getElementById('usOrderTarget1').value = (close * 1.08).toFixed(2);
-  document.getElementById('usOrderTarget2').value = (close * 1.15).toFixed(2);
-  openUSOrderModal();
+function renderUSGASResults(results) {
+  const resultsEl = document.getElementById('usAnalysisResults');
+  if (!results || results.length === 0) {
+    resultsEl.innerHTML = '<div class="order-form-card"><p class="text-sm text-muted" style="padding:1rem;">無符合組合的個股</p></div>'; return;
+  }
+  const rows = results.map(function(r, i) {
+    const chg = parseFloat(r.change_pct) || 0;
+    const score = parseInt(r.score) || 0;
+    const stars = score >= 7 ? '⭐⭐⭐⭐⭐' : score >= 5 ? '⭐⭐⭐⭐' : score >= 3 ? '⭐⭐⭐' : score >= 2 ? '⭐⭐' : '⭐';
+    const comboColor = r.combo && r.combo.includes('D') ? 'var(--green)' : r.combo && r.combo.includes('A') ? 'var(--accent)' : r.combo && r.combo.includes('F') ? '#ff9500' : 'var(--text2)';
+    const chgClass = chg >= 0 ? 'positive' : 'negative';
+    const rsClass  = parseFloat(r.rs_pct||0) >= 0 ? 'positive' : 'negative';
+    return '<tr>' +
+      '<td class="text-mono text-muted" style="font-size:0.8rem;">' + (i+1) + '</td>' +
+      '<td class="text-mono" style="font-weight:700;">' + r.ticker + '</td>' +
+      '<td class="text-mono">$' + parseFloat(r.close||0).toFixed(2) + '</td>' +
+      '<td class="text-mono ' + chgClass + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</td>' +
+      '<td class="text-mono" style="color:' + comboColor + ';font-weight:600;">' + (r.combo||'—') + '</td>' +
+      '<td class="text-mono" style="color:var(--green);font-weight:700;">' + stars + '</td>' +
+      '<td class="text-mono positive">$' + parseFloat(r.entryPrice||0).toFixed(2) + '</td>' +
+      '<td class="text-mono negative">$' + parseFloat(r.stopLoss||0).toFixed(2) + '</td>' +
+      '<td class="text-mono" style="color:var(--yellow);">$' + parseFloat(r.target1||0).toFixed(2) + '</td>' +
+      '<td class="text-mono ' + rsClass + '">' + parseFloat(r.rs_pct||0).toFixed(1) + '%</td>' +
+      '<td style="font-size:0.75rem;color:var(--text2);">' + (r.signals||'—') + '</td>' +
+      '<td class="text-mono text-muted" style="font-size:0.8rem;">' + parseFloat(r.atr||0).toFixed(2) + '</td>' +
+      '<td><button class="btn btn-primary btn-sm" onclick="quickUSOrderGAS(\''+r.ticker+'\','+( r.entryPrice||r.close||0)+','+(r.stopLoss||0)+','+(r.target1||0)+','+(r.target2||0)+')">掛單</button></td>' +
+      '</tr>';
+  }).join('');
+
+  resultsEl.innerHTML =
+    '<div class="order-form-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">' +
+        '<div class="order-form-title" style="margin:0;">🔬 GAS 深度掃描結果 — ' + (results[0] ? results[0].scanDate : '—') + '</div>' +
+        '<span style="font-size:0.75rem;color:var(--text3);">' + results.length + ' 支觸發組合</span>' +
+      '</div>' +
+      '<div style="overflow-x:auto;">' +
+        '<table class="holdings-table">' +
+          '<thead><tr>' +
+            '<th>#</th><th>代號</th><th>收盤</th><th>漲跌%</th>' +
+            '<th>組合</th><th>評分</th><th>進場</th><th>停損</th><th>目標一</th>' +
+            '<th>RS%</th><th>訊號</th><th>ATR</th><th></th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
 }
 
-// ═══════════════════════════════════════════════════
-// 美股 — Yahoo Finance OHLC
-// ═══════════════════════════════════════════════════
+// ─────────────────────────────────────────
+// 美股 — Yahoo Finance OHLC（via GAS）
+// ─────────────────────────────────────────
 
 async function fetchYahooOHLC(symbol, dateStr) {
   const map = await fetchOHLC_viaGAS('US', [symbol], dateStr);
   return map[symbol] || null;
 }
 
-// ═══════════════════════════════════════════════════
-// 美股 Tab UI
-// ═══════════════════════════════════════════════════
+// GAS GET helper（帶 action 參數）
+async function gasFetch_GET(action) {
+  const url = state.gasUrl + '?action=' + encodeURIComponent(action);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+// ─────────────────────────────────────────
+// 美股 Tab UI 渲染
+// ─────────────────────────────────────────
 
 function renderUSTab() {
   document.getElementById('usDateBadge').textContent =
@@ -2987,18 +3385,19 @@ function renderUSTab() {
   renderUSHoldings();
   renderUSPending();
   renderUSTradeHist();
+  usUpdateStats();
 }
 
 function renderUSHoldings() {
-  const el = document.getElementById('usHoldingsTable');
-  const active = state.usHoldings.filter(h => h.status === 'hold');
+  const el     = document.getElementById('usHoldingsTable');
+  const active = (state.usHoldings || []).filter(h => h.status === 'hold');
   if (active.length === 0) { el.innerHTML = '<p class="text-sm text-muted">尚無持倉</p>'; return; }
   el.innerHTML = `<table class="holdings-table">
     <thead><tr><th>代號</th><th>成本</th><th>股數</th><th>停損</th><th>目標一</th><th>狀態</th><th></th></tr></thead>
     <tbody>${active.map(h => `
       <tr>
         <td class="text-mono" style="font-weight:700;">${h.symbol}</td>
-        <td class="text-mono">$${h.entryPrice?.toFixed(2)}</td>
+        <td class="text-mono">$${(h.entryPrice||0).toFixed(2)}</td>
         <td class="text-mono">${h.shares}</td>
         <td class="text-mono negative">$${h.stopLoss}</td>
         <td class="text-mono positive">$${h.target1}</td>
@@ -3010,7 +3409,7 @@ function renderUSHoldings() {
 }
 
 function renderUSPending() {
-  const el = document.getElementById('usPendingTable');
+  const el      = document.getElementById('usPendingTable');
   const pending = state.usPending || [];
   if (pending.length === 0) { el.innerHTML = '<p class="text-sm text-muted">尚無掛單</p>'; return; }
   el.innerHTML = `<table class="holdings-table">
@@ -3039,15 +3438,18 @@ function renderUSTradeHist() {
       <td class="text-mono text-xs">${t.date}</td>
       <td class="text-mono" style="font-weight:700;">${t.symbol}</td>
       <td><span class="status-badge ${t.action==='buy'?'status-hold':t.pnl>0?'status-profit':'status-loss'}">${t.action==='buy'?'買入':'賣出'}</span></td>
-      <td class="text-mono">$${t.price?.toFixed(2)}</td>
+      <td class="text-mono">$${(t.price||0).toFixed(2)}</td>
       <td class="text-mono">${t.shares}</td>
-      <td class="text-mono">$${t.amount?.toFixed(2)}</td>
+      <td class="text-mono">$${(t.amount||0).toFixed(2)}</td>
       <td class="text-mono ${t.pnl==null?'':t.pnl>=0?'positive':'negative'}">${t.pnl==null?'—':(t.pnl>=0?'+':'')+t.pnl?.toFixed(2)}</td>
       <td class="text-xs text-muted">${t.reason||''}</td>
     </tr>`).join('');
 }
 
+// ─────────────────────────────────────────
 // 美股下單 Modal
+// ─────────────────────────────────────────
+
 function openUSOrderModal() {
   ['usOrderSymbol','usOrderLimit','usOrderShares','usOrderStop','usOrderTarget1','usOrderTarget2']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = id === 'usOrderShares' ? '10' : ''; });
@@ -3058,14 +3460,14 @@ function closeUSOrderModal() {
 }
 
 function placeUSOrder() {
-  const symbol = document.getElementById('usOrderSymbol').value.trim().toUpperCase();
+  const symbol     = document.getElementById('usOrderSymbol').value.trim().toUpperCase();
   const limitPrice = parseFloat(document.getElementById('usOrderLimit').value);
-  const shares = parseInt(document.getElementById('usOrderShares').value) || 1;
-  const stopLoss = parseFloat(document.getElementById('usOrderStop').value) || null;
-  const target1  = parseFloat(document.getElementById('usOrderTarget1').value) || null;
-  const target2  = parseFloat(document.getElementById('usOrderTarget2').value) || null;
+  const shares     = parseInt(document.getElementById('usOrderShares').value) || 1;
+  const stopLoss   = parseFloat(document.getElementById('usOrderStop').value)   || null;
+  const target1    = parseFloat(document.getElementById('usOrderTarget1').value) || null;
+  const target2    = parseFloat(document.getElementById('usOrderTarget2').value) || null;
 
-  if (!symbol) { notify('請填入股票代號', 'error'); return; }
+  if (!symbol)               { notify('請填入股票代號', 'error'); return; }
   if (!limitPrice || limitPrice <= 0) { notify('請填入限價', 'error'); return; }
 
   const estimatedCost = limitPrice * shares;
@@ -3075,26 +3477,25 @@ function placeUSOrder() {
 
   if (!state.usPending) state.usPending = [];
   state.usPending.push({ symbol, limitPrice, shares, stopLoss, target1, target2, orderDate: todayStr() });
-  saveState();
-  closeUSOrderModal();
-  renderUSTab();
+  saveState(); closeUSOrderModal(); renderUSTab();
   notify(`✓ ${symbol} 限價 $${limitPrice} 掛單成功，待收盤後自動比對`, 'success');
 }
 
 function cancelUSPending(idx) {
   state.usPending.splice(idx, 1);
-  saveState();
-  renderUSTab();
+  saveState(); renderUSTab();
 }
 
 function removeUSHolding(symbol) {
   if (!confirm(`確定移除 ${symbol} 持倉？`)) return;
   state.usHoldings = state.usHoldings.filter(h => !(h.symbol === symbol && h.status === 'hold'));
-  saveState();
-  renderUSTab();
+  saveState(); renderUSTab();
 }
 
-// 美股「更新 OHLC」——自動抓 Yahoo Finance，比對掛單和持倉
+// ─────────────────────────────────────────
+// 美股「更新 OHLC」— 比對掛單和持倉
+// ─────────────────────────────────────────
+
 async function fetchUSData() {
   const btn = document.querySelector('#tab3 .btn-ghost');
   if (btn) { btn.textContent = '抓取中...'; btn.disabled = true; }
@@ -3102,14 +3503,15 @@ async function fetchUSData() {
   const today = todayStr();
   let msgs = [];
 
-  // 一次批次抓所有需要的美股 OHLC
   const allUSSymbols = [
-    ...(state.usPending || []).map(o => o.symbol),
+    ...(state.usPending  || []).map(o => o.symbol),
     ...(state.usHoldings || []).filter(h => h.status === 'hold').map(h => h.symbol)
   ];
-  const usOHLCMap = allUSSymbols.length > 0 ? await fetchOHLC_viaGAS('US', [...new Set(allUSSymbols)], today) : {};
+  const usOHLCMap = allUSSymbols.length > 0
+    ? await fetchOHLC_viaGAS('US', [...new Set(allUSSymbols)], today)
+    : {};
 
-  // 1. 比對掛單（限價成交判斷）
+  // 比對掛單
   if (!state.usPending) state.usPending = [];
   const stillPending = [];
   for (const order of state.usPending) {
@@ -3117,9 +3519,8 @@ async function fetchUSData() {
     if (!ohlc || !ohlc.low) { stillPending.push(order); continue; }
 
     if (ohlc.low <= order.limitPrice) {
-      // 成交！以限價計
       const fillPrice = order.limitPrice;
-      const cost = fillPrice * order.shares;
+      const cost      = fillPrice * order.shares;
       state.usCash -= cost;
       if (!state.usHoldings) state.usHoldings = [];
       state.usHoldings.push({
@@ -3132,13 +3533,12 @@ async function fetchUSData() {
       state.usTrades.push({ date: today, symbol: order.symbol, action: 'buy', price: fillPrice, shares: order.shares, amount: cost, pnl: null, reason: '限價成交' });
       msgs.push(`${order.symbol} 限價 $${fillPrice} 成交 ${order.shares} 股`);
     } else {
-      // 未成交，繼續等
       stillPending.push(order);
     }
   }
   state.usPending = stillPending;
 
-  // 2. 更新持倉（停損/目標檢查）
+  // 更新持倉
   if (!state.usHoldings) state.usHoldings = [];
   for (const h of state.usHoldings.filter(h => h.status === 'hold')) {
     const ohlc = usOHLCMap[h.symbol];
@@ -3147,25 +3547,22 @@ async function fetchUSData() {
     if (msg) msgs.push(msg);
   }
 
-  saveState();
-  renderUSTab();
+  saveState(); renderUSTab();
   if (btn) { btn.textContent = '📡 更新 OHLC'; btn.disabled = false; }
-  notify(msgs.length > 0 ? msgs.join(' | ') : '今日無觸發，持倉繼續', msgs.length > 0 ? 'info' : 'info');
+  notify(msgs.length > 0 ? msgs.join(' | ') : '今日無觸發，持倉繼續', 'info');
 }
 
 function processUSHoldingOHLC(h, ohlc) {
   const { open, high, low, close, date } = ohlc;
-  const hIdx = state.usHoldings.indexOf(h);
   let msg = '';
-
-  const stopHit = h.stopLoss && low <= h.stopLoss;
+  const stopHit = h.stopLoss && low  <= h.stopLoss;
   const t1Hit   = h.target1  && high >= h.target1;
   const t2Hit   = h.target2  && high >= h.target2;
 
-  const sellUS = (price, shares, reason, isProfit) => {
-    const proceeds = price * shares;
+  const sellUS = (price, shares, reason) => {
+    const proceeds     = price * shares;
     const costPerShare = h.costBasis / h.shares;
-    const pnl = proceeds - costPerShare * shares;
+    const pnl          = proceeds - costPerShare * shares;
     state.usCash += proceeds;
     h.sharesRemaining -= shares;
     if (!state.usTrades) state.usTrades = [];
@@ -3175,21 +3572,19 @@ function processUSHoldingOHLC(h, ohlc) {
   };
 
   if (stopHit && t1Hit) {
-    msg = open >= h.target1 ? sellUS(h.target1, h.sharesRemaining, '目標一（開盤偏高）', true)
-                             : sellUS(h.stopLoss, h.sharesRemaining, '停損觸發', false);
+    msg = open >= h.target1 ? sellUS(h.target1, h.sharesRemaining, '目標一（開盤偏高）')
+                             : sellUS(h.stopLoss, h.sharesRemaining, '停損觸發');
   } else if (stopHit) {
-    msg = sellUS(h.stopLoss, h.sharesRemaining, '停損觸發', false);
+    msg = sellUS(h.stopLoss, h.sharesRemaining, '停損觸發');
   } else if (t2Hit && h.sharesRemaining === h.shares) {
     const half = Math.ceil(h.shares / 2);
-    sellUS(h.target1, half, '達目標一（分批）', true);
-    if (h.sharesRemaining > 0) sellUS(h.target2, h.sharesRemaining, '達目標二', true);
+    sellUS(h.target1, half, '達目標一（分批）');
+    if (h.sharesRemaining > 0) sellUS(h.target2, h.sharesRemaining, '達目標二');
     msg = `${h.symbol} 目標一+二同日觸發，出場完畢`;
   } else if (t1Hit && h.sharesRemaining === h.shares) {
     const half = Math.ceil(h.shares / 2);
-    sellUS(h.target1, half, '達目標一（出50%）', true);
+    sellUS(h.target1, half, '達目標一（出50%）');
     msg = `${h.symbol} 目標一觸發，出場 ${half} 股`;
-  } else {
-    msg = '';
   }
   return msg;
 }
@@ -3266,6 +3661,312 @@ if (state.recommendations && state.recommendations.length > 0) {
   renderRecommendations(state.recommendations);
   populateOrderDropdown(state.recommendations);
 }
+
+
+
+// ══════════════════════════════════════════════════════
+// TAB 5 — US Watchlist  (state: usWL array in localStorage)
+// Schema: { ticker, name, sector, price, chgPct, signals[], earningsDate, addedAt }
+// ══════════════════════════════════════════════════════
+
+let usWL = [];
+let usLastScan = '';
+let usScanTimer = null;
+const US_WL_KEY = 'dv_us_wl';
+const US_SCAN_KEY = 'dv_us_last';
+
+// ── Persistence ──
+function usSave() {
+  localStorage.setItem(US_WL_KEY, JSON.stringify(usWL));
+}
+function usLoad() {
+  try { usWL = JSON.parse(localStorage.getItem(US_WL_KEY) || '[]'); } catch(e) { usWL = []; }
+  usLastScan = localStorage.getItem(US_SCAN_KEY) || '';
+}
+
+// ── Add / Remove ──
+function usAddStock() {
+  const ticker  = (document.getElementById('us-add-ticker').value || '').trim().toUpperCase().replace(/[^A-Z0-9.]/g, '');
+  const name    = (document.getElementById('us-add-name').value   || '').trim();
+  const sector  = (document.getElementById('us-add-sector').value || '').trim();
+  if (!ticker) { alert('請填入股票代號'); return; }
+  if (usWL.find(s => s.ticker === ticker)) { alert(ticker + ' 已在清單中'); return; }
+  usWL.push({ ticker, name, sector, price: null, chgPct: null, signals: [], earningsDate: null, addedAt: new Date().toISOString().slice(0,10) });
+  usSave();
+  document.getElementById('us-add-ticker').value  = '';
+  document.getElementById('us-add-name').value    = '';
+  document.getElementById('us-add-sector').value  = '';
+  usRender();
+  usUpdateStats();
+}
+
+function usRemoveStock(ticker) {
+  usWL = usWL.filter(s => s.ticker !== ticker);
+  usSave(); usRender(); usUpdateStats();
+}
+
+function usClearAll() {
+  if (!usWL.length) return;
+  if (!confirm('確定清空整個 US Watchlist？')) return;
+  usWL = []; usSave(); usRender(); usUpdateStats();
+}
+
+// ── Enter key on add input ──
+document.addEventListener('DOMContentLoaded', function() {
+  const ti = document.getElementById('us-add-ticker');
+  if (ti) ti.addEventListener('keydown', function(e){ if(e.key==='Enter') usAddStock(); });
+});
+
+// ── Render list ──
+function usRender() {
+  const q    = (document.getElementById('us-search') ? document.getElementById('us-search').value : '').toLowerCase();
+  const list = usWL.filter(s =>
+    !q || s.ticker.toLowerCase().includes(q) || (s.name||'').toLowerCase().includes(q)
+  );
+  const body = document.getElementById('us-list-body');
+  if (!body) return;
+
+  if (list.length === 0) {
+    body.innerHTML = '<div class="us-empty">清單是空的，從上方加入想追蹤的美股代號</div>';
+    return;
+  }
+
+  // Sort: signals first, then by ticker
+  list.sort((a, b) => (b.signals||[]).length - (a.signals||[]).length || a.ticker.localeCompare(b.ticker));
+
+  body.innerHTML = list.map(function(s, i) {
+    const priceStr = s.price != null ? '$' + parseFloat(s.price).toFixed(2) : '—';
+    const chgVal   = s.chgPct != null ? parseFloat(s.chgPct) : null;
+    const chgStr   = chgVal != null ? (chgVal >= 0 ? '+' : '') + chgVal.toFixed(2) + '%' : '—';
+    const chgCls   = chgVal == null ? 'flat' : chgVal > 0 ? 'pos' : chgVal < 0 ? 'neg' : 'flat';
+
+    const sigBadges = (s.signals || []).map(function(sig) {
+      const comboMatch = sig.match(/^([A-F])/);
+      const cls = comboMatch ? 'combo-' + comboMatch[1] : 'combo-A';
+      return '<span class="us-sig-badge ' + cls + '">' + sig + '</span>';
+    }).join('');
+
+    const earnChip = s.earningsDate
+      ? '<span class="us-earn-chip">財報 ' + s.earningsDate + '</span>'
+      : '';
+
+    return '<div class="us-stock-row">' +
+      '<div class="us-rank">' + (i+1) + '</div>' +
+      '<div class="us-ticker">' + s.ticker + '</div>' +
+      '<div class="us-name-sector">' +
+        '<div class="us-name">' + (s.name || '—') + ' ' + earnChip + '</div>' +
+        '<div class="us-sector">' + (s.sector || '') + '</div>' +
+      '</div>' +
+      '<div class="us-price">' + priceStr + '</div>' +
+      '<div class="us-chg ' + chgCls + '">' + chgStr + '</div>' +
+      '<div class="us-signals">' + (sigBadges || '<span style="color:var(--us-text3);font-size:10px;">—</span>') + '</div>' +
+      '<div class="us-row-actions">' +
+        '<button class="us-row-btn" onclick="usRemoveStock(\'' + s.ticker + '\')">✕</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── Stats bar ──
+function usUpdateStats(overrideSignals) {
+  const totalEl  = document.getElementById('us-s-total');
+  const sigEl    = document.getElementById('us-s-signals');
+  const earnEl   = document.getElementById('us-s-earn');
+  const scanEl   = document.getElementById('us-s-scan');
+  if (totalEl) totalEl.textContent = usWL.length;
+  if (sigEl) {
+    const cnt = overrideSignals != null ? overrideSignals : usWL.filter(s => s.signals && s.signals.length).length;
+    sigEl.textContent = usLastScan ? cnt : '—';
+  }
+  if (earnEl) {
+    const days7 = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
+    const cnt = usWL.filter(s => s.earningsDate && s.earningsDate <= days7).length;
+    earnEl.textContent = cnt || '—';
+    earnEl.style.color = cnt > 0 ? 'var(--us-rose)' : 'var(--us-text3)';
+  }
+  if (scanEl) {
+    if (usLastScan) {
+      const d = new Date(parseInt(usLastScan));
+      scanEl.textContent = isNaN(d) ? '—' : d.toLocaleDateString('zh-TW',{month:'2-digit',day:'2-digit'}) + ' ' + d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+      scanEl.style.fontSize = '11px';
+    } else {
+      scanEl.textContent = '尚未掃描';
+    }
+  }
+}
+
+// ── Market Status ──
+function usUpdateMarket() {
+  const led    = document.getElementById('us-mled');
+  const status = document.getElementById('us-mstatus');
+  const mtime  = document.getElementById('us-mtime');
+  if (!led) return;
+  const now = new Date();
+  // Convert to ET (UTC-4 in summer / UTC-5 in winter — simplified)
+  const utcH = now.getUTCHours(), utcM = now.getUTCMinutes(), dow = now.getUTCDay();
+  const etOffset = -4; // EST (simplified; DST handling omitted)
+  let etH = (utcH + etOffset + 24) % 24;
+  const isWeekend = (dow === 0 || dow === 6);
+  const marketOpen  = etH * 60 + utcM >= 9 * 60 + 30;
+  const marketClose = etH * 60 + utcM >= 16 * 60;
+  const isPreMkt    = etH * 60 + utcM >= 4 * 60 && !marketOpen;
+  let st = '', cls = '';
+  if (isWeekend) { st = '休市（週末）'; cls = 'closed'; }
+  else if (marketOpen && !marketClose) { st = '交易中'; cls = 'open'; }
+  else if (isPreMkt) { st = '盤前'; cls = 'pre'; }
+  else { st = '盤後'; cls = 'closed'; }
+  led.className    = 'us-mled ' + cls;
+  status.textContent = st;
+  mtime.textContent  = 'ET ' + String(etH).padStart(2,'0') + ':' + String(utcM).padStart(2,'0');
+}
+
+// ── Scan Overlay ──
+function usOpenScan() {
+  if (usWL.length === 0) { alert('請先加入至少一支股票'); return; }
+  const gasUrl = state && state.gasUrl;
+  if (!gasUrl) { alert('請先在設定頁填入 GAS URL'); return; }
+  // Reset UI
+  for (let i = 0; i < 6; i++) {
+    usSetIcon('us-sicon-' + i, 'wait');
+    usSetTxtCls('us-stxt-' + i, 'wait');
+  }
+  document.getElementById('us-pbar').style.width = '4%';
+  document.getElementById('us-note').textContent = '準備中…';
+  const cb = document.getElementById('us-close-btn');
+  cb.disabled = true; cb.textContent = '請等待掃描完成';
+  document.getElementById('us-overlay').classList.add('show');
+  usRunScan(gasUrl);
+}
+
+function usSetIcon(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'us-step-icon ' + state;
+  el.textContent = state === 'done' ? '✓' : state === 'run' ? '…' : '○';
+}
+function usSetTxtCls(id, cls) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'us-step-txt ' + cls;
+}
+
+async function usRunScan(gasUrl) {
+  const steps = [
+    { id: 'us-sicon-0', txt: 'us-stxt-0' },
+    { id: 'us-sicon-1', txt: 'us-stxt-1' },
+    { id: 'us-sicon-2', txt: 'us-stxt-2' },
+    { id: 'us-sicon-3', txt: 'us-stxt-3' },
+    { id: 'us-sicon-4', txt: 'us-stxt-4' },
+    { id: 'us-sicon-5', txt: 'us-stxt-5' },
+  ];
+
+  // Step 0: 同步清單
+  usSetIcon(steps[0].id, 'run'); usSetTxtCls(steps[0].txt, 'run');
+  document.getElementById('us-pbar').style.width = '10%';
+  try {
+    const items = usWL.map(function(s){ return { ticker: s.ticker, name: s.name||'', sector: s.sector||'' }; });
+    await gasFetch({ action: 'saveUSWatchlist', items: items });
+    usSetIcon(steps[0].id, 'done'); usSetTxtCls(steps[0].txt, 'done');
+  } catch(e) {
+    document.getElementById('us-note').textContent = '❌ 同步清單失敗：' + e.message;
+    const cb = document.getElementById('us-close-btn'); cb.disabled = false; cb.textContent = '關閉';
+    return;
+  }
+
+  // Steps 1-4: visual progress (GAS runs server-side, we animate)
+  document.getElementById('us-pbar').style.width = '20%';
+  const animSteps = [1,2,3,4];
+  animSteps.forEach(function(n, i) {
+    usScanTimer = setTimeout(function() {
+      usSetIcon(steps[n].id, 'run'); usSetTxtCls(steps[n].txt, 'run');
+      setTimeout(function() {
+        usSetIcon(steps[n].id, 'done'); usSetTxtCls(steps[n].txt, 'done');
+        document.getElementById('us-pbar').style.width = (20 + (i+1)*14) + '%';
+      }, 900);
+    }, i * 1100);
+  });
+
+  // Step 5 after animation
+  usScanTimer = setTimeout(async function() {
+    usSetIcon(steps[5].id, 'run'); usSetTxtCls(steps[5].txt, 'run');
+    document.getElementById('us-note').textContent = '呼叫 GAS 執行掃描…';
+    try {
+      const res = await gasFetch({ action: 'triggerUSScan' });
+      usSetIcon(steps[5].id, 'done'); usSetTxtCls(steps[5].txt, 'done');
+      document.getElementById('us-pbar').style.width = '100%';
+      usLastScan = Date.now().toString();
+      localStorage.setItem(US_SCAN_KEY, usLastScan);
+
+      // Merge results back into usWL
+      if (res.results && res.results.length) {
+        const map = {};
+        res.results.forEach(function(r){ map[r.ticker] = r; });
+        usWL.forEach(function(s) {
+          const r = map[s.ticker];
+          if (!r) return;
+          s.price    = r.close   || s.price;
+          s.chgPct   = r.change_pct != null ? r.change_pct : s.chgPct;
+          s.signals  = r.signals ? r.signals.split('・').filter(Boolean) : s.signals;
+          s.earningsDate = r.earningsDate || s.earningsDate || null;
+        });
+      }
+      usSave(); usRender(); usUpdateStats();
+
+      const sigCnt = usWL.filter(function(s){ return s.signals && s.signals.length; }).length;
+      document.getElementById('us-note').innerHTML = '✓ 掃描完成 — <span style="color:var(--us-sage)">' + sigCnt + ' 檔</span>出現訊號';
+      const cb = document.getElementById('us-close-btn'); cb.disabled = false; cb.textContent = '關閉';
+    } catch(e) {
+      usSetIcon(steps[5].id, 'wait');
+      document.getElementById('us-note').textContent = '❌ ' + e.message;
+      const cb = document.getElementById('us-close-btn'); cb.disabled = false; cb.textContent = '關閉';
+    }
+  }, animSteps.length * 1100 + 1000);
+}
+
+function usCloseScan() {
+  document.getElementById('us-overlay').classList.remove('show');
+  if (usScanTimer) clearTimeout(usScanTimer);
+}
+
+// ── Init from GAS (sync watchlist on Tab5 open) ──
+async function usInitFromGAS() {
+  const gasUrl = state && state.gasUrl;
+  if (!gasUrl || usWL.length > 0) return;
+  try {
+    const res = await fetch(gasUrl + '?action=getUSWatchlist');
+    const data = await res.json();
+    if (!data.data || !data.data.length) return;
+    const gasList = data.data;
+    let changed = false;
+    gasList.forEach(function(g) {
+      if (!g.ticker) return;
+      const exists = usWL.find(function(s){ return s.ticker === g.ticker; });
+      if (!exists) {
+        usWL.push({ ticker: g.ticker, name: g.name||'', sector: g.sector||'', price: null, chgPct: null, signals: [], earningsDate: null, addedAt: new Date().toISOString().slice(0,10) });
+        changed = true;
+      }
+    });
+    if (changed) { usSave(); usRender(); usUpdateStats(); }
+  } catch(e) { /* silent */ }
+}
+
+// ── Tab switch hook: init Tab5 when first opened ──
+(function() {
+  const origSwitch = window.switchTab;
+  window.switchTab = function(idx) {
+    origSwitch && origSwitch(idx);
+    if (idx === 4) {
+      usUpdateMarket();
+      usRender();
+      usUpdateStats();
+      setTimeout(usInitFromGAS, 800);
+    }
+  };
+})();
+
+// Boot
+usLoad();
+usUpdateMarket();
+setInterval(usUpdateMarket, 30000);
 
 </script>
 </body>
