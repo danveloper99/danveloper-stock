@@ -1546,11 +1546,9 @@ const FINMIND_BASE = 'https://api.finmindtrade.com/api/v4/data';
 
 // 依序嘗試可用模型，找到第一個可用的
 const GEMINI_MODELS = [
-  { name: 'gemini-2.0-flash',       api: 'v1beta' },
-  { name: 'gemini-2.0-flash-lite',  api: 'v1beta' },
-  { name: 'gemini-1.5-flash',       api: 'v1' },
-  { name: 'gemini-1.5-flash-latest',api: 'v1' },
-  { name: 'gemini-1.5-pro',         api: 'v1' },
+  { name: 'gemini-2.5-flash',      api: 'v1beta' },
+  { name: 'gemini-2.5-flash-lite', api: 'v1beta' },
+  { name: 'gemini-2.5-pro',        api: 'v1beta' },
 ];
 
 let _geminiModel = null;
