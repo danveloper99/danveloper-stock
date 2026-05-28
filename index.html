@@ -1375,8 +1375,8 @@ async function testGeminiKey() {
   _geminiModel = null; // 重置模型快取
 
   try {
-    const model = await getGeminiModel();
-    resultEl.textContent = `✓ 連線成功，使用模型：${model}`;
+    const m = await getGeminiModel();
+    resultEl.textContent = `✓ 連線成功，模型：${m.name} (${m.api})`;
     resultEl.style.color = 'var(--green)';
   } catch(e) {
     resultEl.textContent = `✗ ${e.message}`;
@@ -1526,9 +1526,11 @@ const FINMIND_BASE = 'https://api.finmindtrade.com/api/v4/data';
 
 // 依序嘗試可用模型，找到第一個可用的
 const GEMINI_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-001',
+  { name: 'gemini-2.0-flash',       api: 'v1beta' },
+  { name: 'gemini-2.0-flash-lite',  api: 'v1beta' },
+  { name: 'gemini-1.5-flash',       api: 'v1' },
+  { name: 'gemini-1.5-flash-latest',api: 'v1' },
+  { name: 'gemini-1.5-pro',         api: 'v1' },
 ];
 
 let _geminiModel = null;
@@ -1536,9 +1538,9 @@ let _geminiModel = null;
 async function getGeminiModel() {
   if (_geminiModel) return _geminiModel;
   const errors = [];
-  for (const model of GEMINI_MODELS) {
+  for (const { name, api } of GEMINI_MODELS) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.geminiKey}`;
+      const url = `https://generativelanguage.googleapis.com/${api}/models/${name}:generateContent?key=${state.geminiKey}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1549,26 +1551,24 @@ async function getGeminiModel() {
       });
       const status = res.status;
       if (status === 200 || status === 400) {
-        // 400 = 請求格式問題但模型存在，也算可用
-        _geminiModel = model;
-        return model;
+        _geminiModel = { name, api };
+        return _geminiModel;
       }
-      // 其他錯誤：記錄並繼續
       let errMsg = `${status}`;
-      try { const j = await res.json(); errMsg = `${status}: ${j?.error?.message || ''}`; } catch(e) {}
-      errors.push(`${model}→${errMsg}`);
+      try { const j = await res.json(); errMsg = `${status}: ${j?.error?.message?.slice(0,80) || ''}`; } catch(e) {}
+      errors.push(`${name}→${errMsg}`);
     } catch(e) {
-      errors.push(`${model}→網路錯誤:${e.message}`);
+      errors.push(`${name}→${e.message}`);
     }
   }
-  throw new Error(errors.join(' | ') || '所有模型均失敗');
+  throw new Error(errors.join(' | '));
 }
 
 async function callGemini(prompt, useSearch = false) {
   if (!state.geminiKey) return null;
 
-  const model = await getGeminiModel();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.geminiKey}`;
+  const m = await getGeminiModel();
+  const url = `https://generativelanguage.googleapis.com/${m.api}/models/${m.name}:generateContent?key=${state.geminiKey}`;
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
