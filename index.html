@@ -1379,7 +1379,7 @@ async function testGeminiKey() {
     resultEl.textContent = `✓ 連線成功，使用模型：${model}`;
     resultEl.style.color = 'var(--green)';
   } catch(e) {
-    resultEl.textContent = `✗ 連線失敗：${e.message.slice(0, 50)}`;
+    resultEl.textContent = `✗ ${e.message}`;
     resultEl.style.color = 'var(--red)';
     state.geminiKey = prevKey;
     _geminiModel = null;
@@ -1535,6 +1535,7 @@ let _geminiModel = null;
 
 async function getGeminiModel() {
   if (_geminiModel) return _geminiModel;
+  const errors = [];
   for (const model of GEMINI_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.geminiKey}`;
@@ -1542,18 +1543,25 @@ async function getGeminiModel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: '回覆數字1' }] }],
-          generationConfig: { maxOutputTokens: 10 }
+          contents: [{ parts: [{ text: '1' }] }],
+          generationConfig: { maxOutputTokens: 5 }
         })
       });
-      if (res.ok || res.status === 400) {
+      const status = res.status;
+      if (status === 200 || status === 400) {
+        // 400 = 請求格式問題但模型存在，也算可用
         _geminiModel = model;
-        console.log(`Gemini 使用模型：${model}`);
         return model;
       }
-    } catch(e) {}
+      // 其他錯誤：記錄並繼續
+      let errMsg = `${status}`;
+      try { const j = await res.json(); errMsg = `${status}: ${j?.error?.message || ''}`; } catch(e) {}
+      errors.push(`${model}→${errMsg}`);
+    } catch(e) {
+      errors.push(`${model}→網路錯誤:${e.message}`);
+    }
   }
-  throw new Error('找不到可用的 Gemini 模型，請確認 API Key 是否正確');
+  throw new Error(errors.join(' | ') || '所有模型均失敗');
 }
 
 async function callGemini(prompt, useSearch = false) {
