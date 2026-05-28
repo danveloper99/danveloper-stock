@@ -1526,10 +1526,9 @@ const FINMIND_BASE = 'https://api.finmindtrade.com/api/v4/data';
 
 // 依序嘗試可用模型，找到第一個可用的
 const GEMINI_MODELS = [
-  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
   'gemini-1.5-flash',
   'gemini-1.5-flash-001',
-  'gemini-pro'
 ];
 
 let _geminiModel = null;
@@ -1548,7 +1547,6 @@ async function getGeminiModel() {
         })
       });
       if (res.ok || res.status === 400) {
-        // 400 = 請求格式問題但模型存在，也算可用
         _geminiModel = model;
         console.log(`Gemini 使用模型：${model}`);
         return model;
@@ -1569,7 +1567,7 @@ async function callGemini(prompt, useSearch = false) {
     generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
   };
 
-  // Google Search grounding（僅部分模型支援，加 try 保護）
+  // Google Search grounding（新格式）
   if (useSearch) {
     body.tools = [{ googleSearch: {} }];
   }
