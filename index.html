@@ -3270,9 +3270,12 @@ async function runUSAnalysisGAS() {
       renderUSGASResults(res.results);
       usUpdateStats(res.results.length);
     } else if (res.status === 'ok') {
-      // 排程執行中
-      statusEl.innerHTML = `⏳ ${res.msg || '掃描已排程'} <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" onclick="loadUSResultsFromGAS()">📥 查詢結果</button>`;
+      // 排程執行中（清單 > 30 檔，GAS 背景執行）
+      const msg = res.msg || '掃描已排程（1分鐘後執行）';
+      statusEl.innerHTML = '⏳ ' + msg + ' <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" onclick="loadUSResultsFromGAS()">📥 查詢結果</button>';
       document.getElementById('usLoadResultsBtn').style.display = 'inline-block';
+      // 90 秒後自動查詢一次
+      setTimeout(function() { loadUSResultsFromGAS(); }, 90000);
     } else {
       statusEl.textContent = '❌ ' + (res.msg || '掃描失敗');
     }
@@ -3286,19 +3289,44 @@ async function runUSAnalysisGAS() {
 async function loadUSResultsFromGAS() {
   if (!state.gasUrl) { notify('請先填入 GAS URL', 'error'); return; }
   const statusEl = document.getElementById('usAnalysisStatus');
-  statusEl.textContent = '⏳ 載入 GAS 掃描結果...';
+  if (statusEl) statusEl.textContent = '⏳ 載入 GAS 掃描結果...';
   try {
     const res = await gasFetch_GET('getUSResults');
-    if (res.status === 'ok' && res.data) {
-      const data = res.data.filter(r => r.ticker);
-      statusEl.textContent = `✓ 已載入 ${data.length} 筆 GAS 掃描結果`;
-      renderUSGASResults(data);
-      usUpdateStats(data.length);
+    if (res.status === 'ok' && res.data && res.data.length) {
+      // 只取最新一天的結果
+      const latestDate = res.data[0].scanDate;
+      const todayData  = res.data.filter(r => r.ticker && r.scanDate === latestDate);
+
+      // 同步回 usWL（更新 price / chgPct / signals）
+      if (todayData.length > 0) {
+        const map = {};
+        todayData.forEach(function(r) { map[r.ticker] = r; });
+        usWL.forEach(function(s) {
+          const r = map[s.ticker];
+          if (!r) return;
+          s.price  = r.close   || s.price;
+          s.chgPct = r.change_pct != null ? r.change_pct : s.chgPct;
+          s.signals = r.signals
+            ? r.signals.toString().split(/[・,]/).map(function(x){ return x.trim(); }).filter(Boolean)
+            : s.signals;
+        });
+        usLastScan = Date.now().toString();
+        localStorage.setItem(US_SCAN_KEY, usLastScan);
+        usSave();
+      }
+
+      // 重新渲染 Tab5 清單（signals 已更新）
+      usRender();
+      usUpdateStats(todayData.length);
+
+      if (statusEl) statusEl.textContent =
+        '✓ 已載入 ' + latestDate + ' 掃描結果，' + todayData.length + ' 檔出現訊號';
+      notify('✓ GAS 掃描結果已同步至清單', 'success');
     } else {
-      statusEl.textContent = '❌ ' + (res.msg || '無資料');
+      if (statusEl) statusEl.textContent = '目前 USResults 無資料，請先執行 GAS 深度掃描';
     }
   } catch(e) {
-    statusEl.textContent = '❌ GAS 連線失敗';
+    if (statusEl) statusEl.textContent = '❌ GAS 連線失敗：' + e.message;
   }
 }
 
@@ -3933,16 +3961,24 @@ async function usRunScan(gasUrl) {
         res.results.forEach(function(r){ map[r.ticker] = r; });
         usWL.forEach(function(s) {
           const r = map[s.ticker];
-          if (!r) return;
-          s.price    = r.close   || s.price;
-          s.chgPct   = r.change_pct != null ? r.change_pct : s.chgPct;
-          s.signals  = r.signals ? r.signals.split('・').filter(Boolean) : s.signals;
+          if (!r) { s.signals = []; return; }  // 無訊號的也要清空
+          s.price  = r.close   || s.price;
+          s.chgPct = r.change_pct != null ? r.change_pct : s.chgPct;
+          s.signals = r.signals
+            ? r.signals.toString().split(/[・,]/).map(function(x){ return x.trim(); }).filter(Boolean)
+            : s.signals;
           s.earningsDate = r.earningsDate || s.earningsDate || null;
         });
+      } else {
+        // 掃描完成但無訊號 — 清空所有 signals，避免顯示過期資料
+        usWL.forEach(function(s) { s.signals = []; s.price = s.price || null; });
       }
-      usSave(); usRender(); usUpdateStats();
+      usSave();
 
       const sigCnt = usWL.filter(function(s){ return s.signals && s.signals.length; }).length;
+      usRender();          // 重繪 Tab5 清單（顯示訊號 badge）
+      usUpdateStats(sigCnt);
+
       document.getElementById('us-note').innerHTML = '✓ 掃描完成 — <span style="color:var(--us-sage)">' + sigCnt + ' 檔</span>出現訊號';
       const cb = document.getElementById('us-close-btn'); cb.disabled = false; cb.textContent = '關閉';
     } catch(e) {
