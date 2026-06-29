@@ -64,10 +64,6 @@ function doGet(e) {
     if (action === 'getSnapshots') return jsonResponse({ status: 'ok', data: loadSnapshots() });
     if (action === 'getScanResults') return jsonResponse({ status: 'ok', data: loadScanResults() });
     if (action === 'getScanProgress') return jsonResponse({ status: 'ok', data: loadScanProgress() });
-    if (action === 'getOHLC') {
-      const { market, symbols, date } = body;
-      return jsonResponse({ status: 'ok', data: fetchOHLCBatch(market, symbols, date) });
-    }
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
   } catch(err) {
     return jsonResponse({ status: 'error', msg: err.message });
@@ -115,6 +111,18 @@ function doPost(e) {
       loadConfigFromSheet();
       finalizeScan();
       return jsonResponse({ status: 'ok', msg: 'finalizeScan 已執行' });
+    }
+
+    if (action === 'getOHLC') {
+      const market  = body.market  || 'TW';
+      const symbols = body.symbols || [];
+      const date    = body.date    || '';
+      return jsonResponse({ status: 'ok', data: fetchOHLCBatch(market, symbols, date) });
+    }
+
+    if (action === 'saveUSWatchlist') {
+      saveUSWatchlistToSheet(body.items || []);
+      return jsonResponse({ status: 'ok' });
     }
 
     return jsonResponse({ status: 'error', msg: 'Unknown action' });
@@ -1246,7 +1254,7 @@ function fetchOHLCBatch(market, symbols, dateStr) {
 function loadStockNames() {
   // 優先從 ScanTemp 工作表取名稱（Phase1 已帶入，不消耗 UrlFetchApp 配額）
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.TEMP);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ScanTemp');
     if (sheet && sheet.getLastRow() > 0) {
       const names = {};
       const rows = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
@@ -1460,6 +1468,18 @@ function loadSnapshots() {
     const data = sheet.getDataRange().getValues();
     return data.slice(1).filter(r => r[0]).map(r => ({ date: r[0], totalAsset: r[1] }));
   } catch(e) { return []; }
+}
+
+function saveUSWatchlistToSheet(items) {
+  const sheet = getOrCreateSheet('USWatchlist');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1,1,1,3).setValues([['Ticker','Name','Sector']]);
+    sheet.getRange(1,1,1,3).setBackground('#2c4a6e').setFontColor('#ffffff').setFontWeight('bold');
+  }
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+  if (items.length === 0) return;
+  sheet.getRange(2, 1, items.length, 3).setValues(items.map(i => [i.ticker||'', i.name||'', i.sector||'']));
 }
 
 
