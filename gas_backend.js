@@ -506,18 +506,20 @@ function runGeminiAnalysis(results) {
  */
 function geminiAnalyzeAll(stockId, stockName, currentPrice) {
   const today = getTodayStr();
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣上市股票「${stockId} ${stockName}」的最新資訊，進行三個面向的分析。
+  const prompt = `你是一位台股研究分析師。請根據你所知道的關於台灣上市股票「${stockId} ${stockName}」的資訊，進行以下三個面向的評估分析。
 
-目前股價：${currentPrice} 元
+目前股價：${currentPrice} 元（參考日期：${today}）
 
-【面向一：消息面】搜尋近 14 天重大新聞、法說會、訂單、產業動向
-【面向二：券商目標價】搜尋近 6 個月各大券商目標價與評級（富邦、國泰、元大、凱基、摩根士丹利等）
-【面向三：基本面】搜尋近四季 EPS、月營收趨勢、本益比、毛利率、財務健康
+【面向一：消息面】近期重大新聞、法說會、訂單、產業動向
+【面向二：券商目標價】各大券商（富邦、國泰、元大、凱基、摩根士丹利等）目標價與評級
+【面向三：基本面】近四季 EPS 趨勢、月營收趨勢、本益比、毛利率、財務健康
 
 各面向評分規則（score 必須是 -2、-1、0、1、2 其中一個整數）：
-消息面：+2 明確重大利多 / 0 中性 / -2 明確重大利空
+消息面：+2 明確重大利多 / 0 中性或資料不足 / -2 明確重大利空
 券商目標：+2 目標價空間>20%且多數買進 / 0 資料不足 / -2 主要券商下調
-基本面：+2 EPS成長+營收成長+財務健康 / 0 好壞參半 / -2 EPS虧損或大幅衰退
+基本面：+2 EPS成長+營收成長+財務健康 / 0 好壞參半或資料不足 / -2 EPS虧損或大幅衰退
+
+若資訊不足或不確定，score 給 0，summary 標示「資料不足」。
 
 只回傳以下 JSON，不要任何其他文字：
 {
@@ -552,25 +554,23 @@ function geminiAnalyzeAll(stockId, stockName, currentPrice) {
 }
 
 /**
- * 呼叫 Gemini API（帶 Google Search grounding）
+/**
+ * 呼叫 Gemini API（純文字，不使用 Google Search grounding，完全免費）
  */
 function callGeminiGAS(prompt) {
-  // gemini-2.0-flash 用 v1beta，grounding 格式較新
-  // gemini-1.5-flash 用 v1beta，grounding 格式舊版
   const models = [
-    { model: 'gemini-2.5-flash',      api: 'v1beta', grounding: { googleSearch: {} } },
-    { model: 'gemini-2.5-flash-lite', api: 'v1beta', grounding: { googleSearch: {} } },
-    { model: 'gemini-2.5-flash',      api: 'v1beta', grounding: null }  // 不帶 grounding 的 fallback
+    { model: 'gemini-2.5-flash',      api: 'v1beta' },
+    { model: 'gemini-2.5-flash-lite', api: 'v1beta' },
   ];
 
-  for (const { model, api, grounding } of models) {
+  for (const { model, api } of models) {
     try {
       const url = `https://generativelanguage.googleapis.com/${api}/models/${model}:generateContent?key=${CONFIG.GEMINI_KEY}`;
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+        // ⚠️ 不加 tools: googleSearch，避免 grounding 收費（5,000次/月後收費）
       };
-      if (grounding) payload.tools = [grounding];
 
       const res = UrlFetchApp.fetch(url, {
         method: 'post',
@@ -588,7 +588,10 @@ function callGeminiGAS(prompt) {
         throw new Error('QUOTA_EXCEEDED');
       }
 
-      if (code !== 200) continue;
+      if (code !== 200) {
+        Logger.log(`Gemini ${model} 非200：${body.slice(0, 300)}`);
+        continue;
+      }
 
       const json = JSON.parse(body);
       const parts = (json.candidates || [])[0]?.content?.parts || [];
@@ -615,92 +618,6 @@ function extractJson(text) {
   const end = clean.lastIndexOf('}');
   if (start !== -1 && end !== -1) clean = clean.slice(start, end + 1);
   return JSON.parse(clean);
-}
-
-/**
- * 消息面分析
- */
-function geminiAnalyzeNews(stockId, stockName) {
-  const today = getTodayStr();
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣上市股票「${stockId} ${stockName}」的最新消息面。
-
-搜尋重點：
-1. 近 14 天重大新聞（法說會、財報、訂單、策略合作、產品發表）
-2. 近期利空風險（虧損、客戶流失、競爭加劇、主管異動）
-3. 所屬產業景氣方向
-
-score 必須是 -2、-1、0、1、2 其中一個整數：
-+2 = 明確重大利多  +1 = 溫和正面  0 = 中性或資料不足  -1 = 溫和負面  -2 = 明確重大利空
-
-只回傳 JSON，不要其他文字：
-{"score":0,"summary":"2句繁體中文摘要","keyNews":["消息1","消息2"],"riskAlert":"風險說明或目前無明顯利空"}`;
-
-  try {
-    const result = callGeminiGAS(prompt);
-    result.score = Math.max(-2, Math.min(2, parseInt(result.score) || 0));
-    return result;
-  } catch(e) {
-    return { score: 0, summary: `分析失敗：${e.message.slice(0,30)}`, keyNews: [], riskAlert: '─' };
-  }
-}
-
-/**
- * 券商目標價分析
- */
-function geminiAnalyzeBroker(stockId, stockName, currentPrice) {
-  const today = getTodayStr();
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣股票「${stockId} ${stockName}」的券商目標價資訊。
-
-搜尋重點：
-1. 近 6 個月各大券商目標價（富邦、國泰、元大、凱基、摩根士丹利、高盛、花旗）
-2. 多數券商評級共識（強力買進/買進/中立/賣出）
-3. 近期是否有券商上調或下調
-
-目前股價：${currentPrice} 元
-
-score 必須是 -2、-1、0、1、2 其中一個整數：
-+2 = 目標價空間>20%且多數評級買進  +1 = 目標價空間10~20%  0 = 資料不足或分歧  -1 = 保守評級  -2 = 下調目標價
-
-只回傳 JSON，不要其他文字：
-{"score":0,"targetHigh":null,"targetLow":null,"targetMedian":null,"upsidePct":null,"consensusRating":"資料不足","recentChange":"資料不足","brokerList":[],"summary":"2句繁體中文摘要"}`;
-
-  try {
-    const result = callGeminiGAS(prompt);
-    result.score = Math.max(-2, Math.min(2, parseInt(result.score) || 0));
-    return result;
-  } catch(e) {
-    return { score: 0, targetMedian: null, consensusRating: '資料不足', recentChange: '資料不足', brokerList: [], summary: `分析失敗：${e.message.slice(0,30)}` };
-  }
-}
-
-/**
- * 基本面分析
- */
-function geminiAnalyzeFund(stockId, stockName, currentPrice) {
-  const today = getTodayStr();
-  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣股票「${stockId} ${stockName}」的基本面財務資訊。
-
-搜尋重點：
-1. 近四季 EPS 數字與趨勢（成長/持平/衰退）
-2. 近三個月月營收與年增率 YoY
-3. 本益比 PE（現價 ${currentPrice} 除以近四季 EPS 合計）與同業比較
-4. 毛利率趨勢（擴張/持平/收縮）
-5. 財務健康（負債比率、現金流）
-6. 所屬產業景氣循環位置
-
-score 必須是 -2、-1、0、1、2 其中一個整數：
-+2 = EPS成長+營收成長+PE合理+財務健康  +1 = 多數指標正面  0 = 好壞參半  -1 = 多數偏弱  -2 = EPS虧損或大幅衰退
-
-只回傳 JSON，不要其他文字：
-{"score":0,"epsGrowth":"成長","revenueGrowth":"成長","peRatio":null,"peAssessment":"合理","marginTrend":"持平","financialHealth":"健康","industryCycle":"擴張","summary":"2至3句繁體中文摘要","recentEps":[],"recentRevenue":[]}`;
-
-  try {
-    const result = callGeminiGAS(prompt);
-    result.score = Math.max(-2, Math.min(2, parseInt(result.score) || 0));
-    return result;
-  } catch(e) {
-    return { score: 0, epsGrowth: '資料不足', revenueGrowth: '資料不足', peRatio: null, peAssessment: '資料不足', marginTrend: '資料不足', financialHealth: '資料不足', industryCycle: '不確定', summary: `分析失敗：${e.message.slice(0,30)}`, recentEps: [], recentRevenue: [] };
-  }
 }
 
 // ══════════════════════════════════════════════
