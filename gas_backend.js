@@ -268,7 +268,9 @@ function finalizeScan() {
 
   // Gemini 分析：動態分批，每批最多 20 檔（每檔1次，約20秒，安全範圍內）
   const GEMINI_BATCH = 20;
-  if (CONFIG.GEMINI_KEY && merged.length > 0) {
+  if (CONFIG.GEMINI_KEY && merged.length > 0 && progress.geminiQuotaExceeded) {
+    Logger.log('Gemini 額度本輪已用完，跳過分析');
+  } else if (CONFIG.GEMINI_KEY && merged.length > 0) {
     const geminiOffset = progress.geminiOffset || 0; // 目前跑到第幾檔
 
     if (geminiOffset < merged.length) {
@@ -276,8 +278,9 @@ function finalizeScan() {
       const batchSlice = merged.slice(geminiOffset, batchEnd);
 
       Logger.log(`Gemini 分析 ${geminiOffset + 1}~${batchEnd} / ${merged.length} 檔`);
+      let quotaExceeded = false;
       try {
-        runGeminiAnalysis(batchSlice);
+        quotaExceeded = runGeminiAnalysis(batchSlice);
         // 把分析結果寫回 merged
         batchSlice.forEach((r, i) => { merged[geminiOffset + i] = r; });
       } catch(e) {
@@ -290,20 +293,30 @@ function finalizeScan() {
       resultSheet.clearContents();
       saveTempResults(merged);
       progress.geminiOffset = nextOffset;
-      saveScanProgress(progress);
 
-      if (nextOffset < merged.length) {
-        // 還有剩，繼續排程 finalizeScan
-        ScriptApp.getProjectTriggers().forEach(t => {
-          if (t.getHandlerFunction() === 'finalizeScan') ScriptApp.deleteTrigger(t);
-        });
-        ScriptApp.newTrigger('finalizeScan').timeBased().after(90 * 1000).create();
-        Logger.log(`Gemini 分析未完，排程繼續（剩 ${merged.length - nextOffset} 檔），90 秒後繼續`);
-        return; // 先結束，讓下一批繼續
+      if (quotaExceeded) {
+        // 額度用完：記錄旗標、通知、本次掃描不再呼叫 Gemini，直接進入收尾
+        progress.geminiQuotaExceeded = true;
+        saveScanProgress(progress);
+        notifyGeminiQuotaExceeded(merged.length - nextOffset);
+        Logger.log(`Gemini 額度已用完，剩餘 ${merged.length - nextOffset} 檔不再分析，已寄信通知`);
+      } else {
+        saveScanProgress(progress);
+
+        if (nextOffset < merged.length) {
+          // 還有剩，繼續排程 finalizeScan
+          ScriptApp.getProjectTriggers().forEach(t => {
+            if (t.getHandlerFunction() === 'finalizeScan') ScriptApp.deleteTrigger(t);
+          });
+          ScriptApp.newTrigger('finalizeScan').timeBased().after(90 * 1000).create();
+          Logger.log(`Gemini 分析未完，排程繼續（剩 ${merged.length - nextOffset} 檔），90 秒後繼續`);
+          return; // 先結束，讓下一批繼續
+        }
+
+        Logger.log('Gemini 分析全部完成');
       }
 
-      Logger.log('Gemini 分析全部完成');
-      // 重新排序（加入 Gemini 分數後）
+      // 重新排序（加入 Gemini 分數後；額度用完的情況下未分析個股 geminiTotal 視為 0）
       merged.sort((a, b) =>
         (b.priority - a.priority) ||
         ((b.geminiTotal || 0) - (a.geminiTotal || 0)) ||
@@ -463,6 +476,9 @@ function runPhase1() {
  * 對所有符合條件的個股執行 Gemini 深度分析
  * 結果直接寫入 result 物件
  */
+/**
+ * @returns {boolean} 是否在本次呼叫中遇到額度用完（QUOTA_EXCEEDED）
+ */
 function runGeminiAnalysis(results) {
   const names = loadStockNames();
 
@@ -470,7 +486,8 @@ function runGeminiAnalysis(results) {
   const highPriority = results.filter(r => r.priority >= 4);
   Logger.log(`Gemini 分析：共 ${results.length} 檔，其中 ${highPriority.length} 檔優先級 ≥ 4 星需要分析`);
 
-  highPriority.forEach((r, i) => {
+  for (let i = 0; i < highPriority.length; i++) {
+    const r = highPriority[i];
     try {
       Logger.log(`Gemini 分析 ${i + 1}/${highPriority.length}: ${r.id}`);
       const name = names[r.id] || r.id;
@@ -490,14 +507,15 @@ function runGeminiAnalysis(results) {
       Utilities.sleep(2000);
     } catch(e) {
       if (e.message === 'QUOTA_EXCEEDED') {
-        Logger.log('Gemini 額度已用完，跳過剩餘分析');
-        return; // 跳出 forEach
+        Logger.log(`Gemini 額度已用完，停止本次與後續分析（已處理 ${i}/${highPriority.length} 檔）`);
+        return true; // 真正中止迴圈，不再呼叫
       }
       Logger.log(`${r.id} Gemini 分析失敗：${e.message}`);
       r.geminiTotal = 0;
       r.geminiBonus = 0;
     }
-  });
+  }
+  return false;
 }
 
 /**
@@ -506,20 +524,20 @@ function runGeminiAnalysis(results) {
  */
 function geminiAnalyzeAll(stockId, stockName, currentPrice) {
   const today = getTodayStr();
-  const prompt = `你是一位台股研究分析師。請根據你所知道的關於台灣上市股票「${stockId} ${stockName}」的資訊，進行以下三個面向的評估分析。
+  const prompt = `今天是 ${today}。請使用 Google Search 搜尋台灣上市股票「${stockId} ${stockName}」的最新資訊，進行以下三個面向的分析。
 
-目前股價：${currentPrice} 元（參考日期：${today}）
+目前股價：${currentPrice} 元
 
-【面向一：消息面】近期重大新聞、法說會、訂單、產業動向
-【面向二：券商目標價】各大券商（富邦、國泰、元大、凱基、摩根士丹利等）目標價與評級
-【面向三：基本面】近四季 EPS 趨勢、月營收趨勢、本益比、毛利率、財務健康
+【面向一：消息面】搜尋近 14 天重大新聞、法說會、訂單、產業動向
+【面向二：券商目標價】搜尋近 6 個月各大券商目標價與評級（富邦、國泰、元大、凱基、摩根士丹利等）
+【面向三：基本面】搜尋近四季 EPS、月營收趨勢、本益比、毛利率、財務健康
 
 各面向評分規則（score 必須是 -2、-1、0、1、2 其中一個整數）：
 消息面：+2 明確重大利多 / 0 中性或資料不足 / -2 明確重大利空
 券商目標：+2 目標價空間>20%且多數買進 / 0 資料不足 / -2 主要券商下調
 基本面：+2 EPS成長+營收成長+財務健康 / 0 好壞參半或資料不足 / -2 EPS虧損或大幅衰退
 
-若資訊不足或不確定，score 給 0，summary 標示「資料不足」。
+若搜尋不到資訊或不確定，score 給 0，summary 標示「資料不足」。
 
 只回傳以下 JSON，不要任何其他文字：
 {
@@ -554,8 +572,7 @@ function geminiAnalyzeAll(stockId, stockName, currentPrice) {
 }
 
 /**
-/**
- * 呼叫 Gemini API（純文字，不使用 Google Search grounding，完全免費）
+ * 呼叫 Gemini API（帶 Google Search grounding，用到免費額度上限為止）
  */
 function callGeminiGAS(prompt) {
   const models = [
@@ -569,7 +586,7 @@ function callGeminiGAS(prompt) {
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-        // ⚠️ 不加 tools: googleSearch，避免 grounding 收費（5,000次/月後收費）
+        tools: [{ googleSearch: {} }],
       };
 
       const res = UrlFetchApp.fetch(url, {
@@ -848,6 +865,7 @@ function initScanProgress() {
     startedAt: new Date().toISOString(),
     totalCandidates: 0,
     geminiOffset: 0,
+    geminiQuotaExceeded: false,
     resultCount: 0
     // partialResults 不存在 progress，改用獨立工作表
   };
@@ -1289,6 +1307,26 @@ function logNotification_(time, count, email) {
     }
     sheet.appendRow([time, count, email, '已寄出']);
   } catch(e) {}
+}
+
+/**
+ * Gemini Google Search grounding 免費額度用完時通知，本次掃描不再呼叫
+ */
+function notifyGeminiQuotaExceeded(skippedCount) {
+  try {
+    const to = CONFIG.NOTIFY_EMAIL || Session.getActiveUser().getEmail();
+    if (!to) return;
+    const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+    const subject = `⚠️ DANVELOPER Gemini 額度已用完｜${now.split(' ')[0]}`;
+    const body = `Gemini（Google Search grounding）免費額度已於今日用完（${now}）。\n\n` +
+      `本次掃描剩餘 ${skippedCount} 檔個股將不再呼叫 Gemini 分析，優先級僅以技術面計算，不會產生額外費用。\n` +
+      `額度會定期重置，下次掃描將自動恢復嘗試。`;
+    MailApp.sendEmail({ to, subject, body });
+    logNotification_(now, 0, to + '（Gemini額度用完通知）');
+    Logger.log('已寄送 Gemini 額度用完通知');
+  } catch(e) {
+    Logger.log('寄送 Gemini 額度用完通知失敗：' + e.message);
+  }
 }
 
 // ══════════════════════════════════════════════
