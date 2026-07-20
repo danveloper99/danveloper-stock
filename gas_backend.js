@@ -183,10 +183,17 @@ function runScanBatch() {
     progress.nameMap = {};
     phase1Results.forEach(s => { if (s.name) progress.nameMap[s.id] = s.name; });
     progress.totalCandidates = phase1Results.length;
-    
+
+    // 真正的大盤判斷：加權指數 vs 20日均線
+    const market = checkMarketTrend();
+    progress.marketPass = market.pass;
+    progress.marketIndex = market.index;
+    progress.marketMA20 = market.ma20;
+    progress.advCount = _phase1AdvDec.adv;
+    progress.decCount = _phase1AdvDec.dec;
+
     saveScanProgress(progress);
-    progress.marketPass = true; // 預設多頭，可在 runPhase1 中更新
-    Logger.log(`第一階段完成：${phase1Results.length} 檔通過初篩`);
+    Logger.log(`第一階段完成：${phase1Results.length} 檔通過初篩，大盤${market.pass ? '多頭' : '空頭(謹慎)'}`);
   }
 
   // 重新讀取（因為第一批可能更新了 candidates）
@@ -379,6 +386,45 @@ function scheduleNextBatch(batchIndex) {
 // 第一階段：全市場快速初篩
 // ══════════════════════════════════════════════
 
+let _phase1AdvDec = { adv: 0, dec: 0 };
+
+// ══════════════════════════════════════════════
+// 大盤判斷：加權指數 vs 20日均線（TWSE FMTQIK，免費）
+// ══════════════════════════════════════════════
+function checkMarketTrend() {
+  try {
+    const closes = [];
+    const now = new Date();
+    // 抓本月 + 上月的大盤日資料（確保滿 20 個交易日）
+    for (let m = 1; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const dateStr = Utilities.formatDate(d, 'Asia/Taipei', 'yyyyMMdd');
+      const url = `https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${dateStr}&response=json`;
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) continue;
+      const json = JSON.parse(res.getContentText());
+      if (json.stat !== 'OK' || !json.data) continue;
+      // 欄位：[日期, 成交股數, 成交金額, 成交筆數, 發行量加權股價指數, 漲跌點數]
+      json.data.forEach(row => {
+        const idx = parseFloat(String(row[4]).replace(/,/g, ''));
+        if (idx > 0) closes.push(idx);
+      });
+    }
+    if (closes.length < 20) {
+      Logger.log(`checkMarketTrend：資料不足（${closes.length} 日），預設謹慎`);
+      return { pass: false, index: closes[closes.length-1] || 0, ma20: 0 };
+    }
+    const last = closes[closes.length - 1];
+    const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    const pass = last >= ma20;
+    Logger.log(`checkMarketTrend：指數 ${last.toFixed(0)} vs MA20 ${ma20.toFixed(0)} → ${pass ? '多頭' : '空頭'}`);
+    return { pass, index: Math.round(last), ma20: Math.round(ma20) };
+  } catch(e) {
+    Logger.log('checkMarketTrend 失敗：' + e.message);
+    return { pass: false, index: 0, ma20: 0 };
+  }
+}
+
 function runPhase1() {
   Logger.log('Phase1 開始，使用 TWSE Open API 抓全市場當日資料');
 
@@ -417,6 +463,16 @@ function runPhase1() {
     Logger.log('❌ 無資料，可能今天休市');
     return [];
   }
+
+  // 統計全市場漲跌家數（Change 欄位）
+  let advCount = 0, decCount = 0;
+  allData.forEach(d => {
+    const chg = parseFloat(String(d.Change || '0').replace(/,/g, ''));
+    if (chg > 0) advCount++;
+    else if (chg < 0) decCount++;
+  });
+  _phase1AdvDec = { adv: advCount, dec: decCount };
+  Logger.log(`漲跌家數：漲 ${advCount} / 跌 ${decCount}`);
 
   const passed = [];
 
@@ -844,7 +900,7 @@ function initScanProgress() {
     candidates: [],
     done: false,
     scanDone: false,
-    marketPass: true,
+    marketPass: null,
     startedAt: new Date().toISOString(),
     totalCandidates: 0,
     geminiOffset: 0,
