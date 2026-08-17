@@ -183,10 +183,35 @@ function runScanBatch() {
     progress.nameMap = {};
     phase1Results.forEach(s => { if (s.name) progress.nameMap[s.id] = s.name; });
     progress.totalCandidates = phase1Results.length;
-    
+
+    // 真正的大盤判斷：加權指數 vs 20日均線
+    const market = checkMarketTrend();
+    progress.marketPass = market.pass;
+    progress.marketIndex = market.index;
+    progress.marketMA20 = market.ma20;
+    progress.advCount = _phase1AdvDec.adv;
+    progress.decCount = _phase1AdvDec.dec;
+
+    // 止穩訊號 Checklist（5項自動判定，只在批次0跑一次）
+    try {
+      progress.stabilization = checkStabilizationSignals();
+      Logger.log(`止穩訊號：${progress.stabilization.verdict}`);
+    } catch(e) {
+      Logger.log('止穩訊號檢查失敗：' + e.message);
+      progress.stabilization = null;
+    }
+
+    // 空頭警示：大盤空頭確認 + 庫存清單逐檔檢查（只在批次0跑一次）
+    try {
+      progress.bearishWarning = checkPortfolioBearishWarning();
+      Logger.log(`空頭警示：大盤${progress.bearishWarning.market.verdict}，持股警示 ${progress.bearishWarning.warnedCount}/${progress.bearishWarning.totalHoldings} 檔`);
+    } catch(e) {
+      Logger.log('空頭警示檢查失敗：' + e.message);
+      progress.bearishWarning = null;
+    }
+
     saveScanProgress(progress);
-    progress.marketPass = true; // 預設多頭，可在 runPhase1 中更新
-    Logger.log(`第一階段完成：${phase1Results.length} 檔通過初篩`);
+    Logger.log(`第一階段完成：${phase1Results.length} 檔通過初篩，大盤${market.pass ? '多頭' : '空頭(謹慎)'}`);
   }
 
   // 重新讀取（因為第一批可能更新了 candidates）
@@ -215,7 +240,8 @@ function runScanBatch() {
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
-      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
+      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs,
+      marginUsage: r.marginUsage, marginWeeklyChange: r.marginWeeklyChange, marginBonus: r.marginBonus
     }));
     saveTempResults(newResults);
     scheduleNextBatch(nextBatch);
@@ -232,7 +258,8 @@ function runScanBatch() {
       priority: r.priority, hitCount: r.hitCount,
       entryPrice: r.entryPrice, stopLoss: r.stopLoss,
       target1: r.target1, target2: r.target2, atr: r.atr,
-      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs
+      itrustBuy: r.itrustBuy, foreignBuy: r.foreignBuy, rs: r.rs,
+      marginUsage: r.marginUsage, marginWeeklyChange: r.marginWeeklyChange, marginBonus: r.marginBonus
     }));
     saveTempResults(lastResults);
 
@@ -356,6 +383,8 @@ function finalizeScan() {
   try {
     sendScanEmail(merged, {
       marketPass: progress.marketPass,
+      stabilization: progress.stabilization,
+      bearishWarning: progress.bearishWarning,
       totalScanned,
       completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
     });
@@ -391,6 +420,413 @@ function scheduleNextBatch(batchIndex) {
 // ══════════════════════════════════════════════
 // 第一階段：全市場快速初篩
 // ══════════════════════════════════════════════
+
+let _phase1AdvDec = { adv: 0, dec: 0 };
+
+// ══════════════════════════════════════════════
+// 大盤判斷：加權指數 vs 20日均線（TWSE FMTQIK，免費）
+// ══════════════════════════════════════════════
+function checkMarketTrend() {
+  try {
+    const closes = [];
+    const now = new Date();
+    // 抓本月 + 上月的大盤日資料（確保滿 20 個交易日）
+    for (let m = 1; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const dateStr = Utilities.formatDate(d, 'Asia/Taipei', 'yyyyMMdd');
+      const url = `https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${dateStr}&response=json`;
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) continue;
+      const json = JSON.parse(res.getContentText());
+      if (json.stat !== 'OK' || !json.data) continue;
+      // 欄位：[日期, 成交股數, 成交金額, 成交筆數, 發行量加權股價指數, 漲跌點數]
+      json.data.forEach(row => {
+        const idx = parseFloat(String(row[4]).replace(/,/g, ''));
+        if (idx > 0) closes.push(idx);
+      });
+    }
+    if (closes.length < 20) {
+      Logger.log(`checkMarketTrend：資料不足（${closes.length} 日），預設謹慎`);
+      return { pass: false, index: closes[closes.length-1] || 0, ma20: 0 };
+    }
+    const last = closes[closes.length - 1];
+    const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    const pass = last >= ma20;
+    Logger.log(`checkMarketTrend：指數 ${last.toFixed(0)} vs MA20 ${ma20.toFixed(0)} → ${pass ? '多頭' : '空頭'}`);
+    return { pass, index: Math.round(last), ma20: Math.round(ma20) };
+  } catch(e) {
+    Logger.log('checkMarketTrend 失敗：' + e.message);
+    return { pass: false, index: 0, ma20: 0 };
+  }
+}
+
+// ══════════════════════════════════════════════
+// 止穩訊號 Checklist（5項自動判定，7/17崩盤後建立的框架）
+// ⚠️ 這個函式抓了4個不同的外部資料源，單次執行可能要10~20秒，
+//    建議只在每天第一批（batchIndex===0）呼叫一次，不要每檔股票都呼叫。
+// ⚠️ ③的「大盤融資單日大減」門檻是用 FinMind TodayBalance/YesBalance
+//    的原始差值去比對，實際單位（元 or 張）未經真實資料驗證，
+//    第一次跑完後請對照 Logger.log 印出的原始數字，用真實案例校正
+//    STABILIZATION_MARGIN_DROP_THRESHOLD 這個常數。
+// ⚠️ ⑤的「爆量長下影」只用成交金額(1.3兆+)當代理指標，沒有驗證
+//    K棒下影線的實際形狀（TWSE免費API拿不到大盤指數的日內高低點），
+//    這條件成立時建議自己肉眼確認一下K線圖。
+// ══════════════════════════════════════════════
+const STABILIZATION_MARGIN_DROP_THRESHOLD = 15000000000; // 150億，單位需依實際資料校正
+
+function checkStabilizationSignals() {
+  const items = [];
+
+  // ① 台積電（2330）連2日收盤不破前低且站回5日線
+  try {
+    const start = getDaysAgo(20);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=2330&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const data = (json.data || []).filter(d => d.close > 0);
+    if (data.length >= 7) {
+      const closes = data.map(d => d.close);
+      const last = closes[closes.length - 1], prev = closes[closes.length - 2];
+      const priorLow = Math.min(...closes.slice(-7, -2)); // 前低：再往前5天的最低收盤
+      const ma5 = calcMA_GAS(closes, 5);
+      const pass = last >= priorLow && prev >= priorLow && last >= ma5;
+      items.push({ key: '①', name: '台積電止穩', pass, detail: `收盤${last} / 前低${priorLow.toFixed(1)} / 5MA${ma5.toFixed(1)}` });
+    } else {
+      items.push({ key: '①', name: '台積電止穩', pass: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '①', name: '台積電止穩', pass: false, detail: '抓取失敗：' + e.message }); }
+
+  // ② 外資單日賣超收斂至300億內（整體市場三大法人買賣表，過濾「外資」列）
+  try {
+    const start = getDaysAgo(5);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockTotalInstitutionalInvestors&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const rows = (json.data || []).filter(d => (d.name || '').indexOf('外資') !== -1);
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1];
+      const net = (last.buy || 0) - (last.sell || 0); // 負值＝賣超
+      const pass = net >= -30000000000; // 賣超收斂至300億內，或已轉買超
+      items.push({ key: '②', name: '外資賣超收斂', pass, detail: `淨額約 ${(net / 1e8).toFixed(1)} 億` });
+    } else {
+      items.push({ key: '②', name: '外資賣超收斂', pass: false, detail: '無資料' });
+    }
+  } catch(e) { items.push({ key: '②', name: '外資賣超收斂', pass: false, detail: '抓取失敗：' + e.message }); }
+
+  // ③ 大盤融資單日大減150億以上（整體市場融資融券表，過濾「融資」列）
+  try {
+    const start = getDaysAgo(5);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockTotalMarginPurchaseShortSale&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const rows = (json.data || []).filter(d => (d.name || '').indexOf('融資') !== -1);
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1];
+      const diff = (last.TodayBalance || 0) - (last.YesBalance || 0); // 負值＝減少
+      Logger.log(`止穩訊號③ 原始數字 TodayBalance=${last.TodayBalance} YesBalance=${last.YesBalance} diff=${diff}`);
+      const pass = diff <= -STABILIZATION_MARGIN_DROP_THRESHOLD;
+      items.push({ key: '③', name: '融資大減斷頭出清', pass, detail: `單日變化約 ${(diff / 1e8).toFixed(1)} 億（單位待校正）` });
+    } else {
+      items.push({ key: '③', name: '融資大減斷頭出清', pass: false, detail: '無資料' });
+    }
+  } catch(e) { items.push({ key: '③', name: '融資大減斷頭出清', pass: false, detail: '抓取失敗：' + e.message }); }
+
+  // ④ 費半（SOX）連2日不創新低或單日彈2%+收高
+  try {
+    const start = getDaysAgo(15);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=USStockPrice&data_id=^SOX&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const data = (json.data || []).filter(d => d.Close > 0);
+    if (data.length >= 5) {
+      const closes = data.map(d => d.Close);
+      const last = closes[closes.length - 1], prev = closes[closes.length - 2];
+      const priorLow = Math.min(...closes.slice(0, -2));
+      const bigBounce = prev > 0 && (last - prev) / prev >= 0.02 && last > prev;
+      const notNewLow2Days = last >= priorLow && prev >= priorLow;
+      const pass = bigBounce || notNewLow2Days;
+      items.push({ key: '④', name: '費半止跌', pass, detail: `收盤 ${last.toFixed(0)} / 前波低點 ${priorLow.toFixed(0)}` });
+    } else {
+      items.push({ key: '④', name: '費半止跌', pass: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '④', name: '費半止跌', pass: false, detail: '抓取失敗：' + e.message }); }
+
+  // ⑤ 大盤爆量（1.3兆+，成交金額代理指標）或收復43500站穩2日
+  try {
+    const closes = [], amounts = [];
+    const now = new Date();
+    for (let m = 1; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const dateStr = Utilities.formatDate(d, 'Asia/Taipei', 'yyyyMMdd');
+      const url = `https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${dateStr}&response=json`;
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) continue;
+      const json = JSON.parse(res.getContentText());
+      if (json.stat !== 'OK' || !json.data) continue;
+      json.data.forEach(row => {
+        const idx = parseFloat(String(row[4]).replace(/,/g, ''));
+        const amt = parseFloat(String(row[2]).replace(/,/g, ''));
+        if (idx > 0) { closes.push(idx); amounts.push(amt); }
+      });
+    }
+    if (closes.length >= 3) {
+      const lastIdx = closes[closes.length - 1], lastAmt = amounts[amounts.length - 1];
+      const prevIdx = closes[closes.length - 2];
+      const bigVolume = lastAmt >= 1.3e12;
+      const holds43500 = lastIdx >= 43500 && prevIdx >= 43500;
+      const pass = bigVolume || holds43500;
+      items.push({ key: '⑤', name: '大盤反轉確認', pass, detail: `指數 ${lastIdx.toFixed(0)} / 金額 ${(lastAmt / 1e12).toFixed(2)}兆` });
+    } else {
+      items.push({ key: '⑤', name: '大盤反轉確認', pass: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '⑤', name: '大盤反轉確認', pass: false, detail: '抓取失敗：' + e.message }); }
+
+  const count = items.filter(i => i.pass).length;
+  let verdict;
+  if (count >= 3) verdict = `${count}/5 成立 → 可投入第2批`;
+  else if (count >= 2) verdict = `${count}/5 成立 → 可投入第1批`;
+  else verdict = `${count}/5 成立 → 訊號未到，繼續觀望`;
+
+  return { count, total: 5, items, verdict };
+}
+
+// ══════════════════════════════════════════════
+// 空頭警示系統：大盤空頭確認 + 庫存清單個股警示
+// ⚠️ 跟止穩訊號一樣，③的融資單位、⑤的爆量下跌都是同樣的估算限制，
+//    需要你跑過真實資料後校正 BEARISH_MARGIN_SURGE_THRESHOLD。
+// ══════════════════════════════════════════════
+const BEARISH_MARGIN_SURGE_THRESHOLD = 10000000000; // 100億，單位需依實際資料校正
+
+// 個股空頭訊號（checkG的鏡像，但刻意放寬——這是「提醒你注意」不是「已經崩盤才通知」，
+// 所以不要求5項全過，只要「均線結構轉空」＋「動能指標至少2項同向轉弱」就示警，
+// 這樣才能在真正大跌之前提早提醒，而不是等到損失已經發生才後知後覺）
+function checkBearishExit(ohlc, vols) {
+  if (ohlc.length < 65) return { warn: false, detail: '資料不足' };
+  const cl = ohlc.map(d => d.close);
+  const lastClose = cl[cl.length - 1];
+
+  const ma5 = calcMA_GAS(cl, 5), ma10 = calcMA_GAS(cl, 10), ma20 = calcMA_GAS(cl, 20);
+  if (!ma5 || !ma10 || !ma20) return { warn: false, detail: '均線資料不足' };
+  // 結構性轉空：收盤跌破5MA且5MA<10MA<20MA（不強制60MA，避免早期轉空訊號被壓過久才示警）
+  const maBearish = lastClose < ma5 && ma5 < ma10 && ma10 < ma20;
+
+  const rsis = calcRSISeries_GAS(cl, 14);
+  let rsiWeak = false, rsiToday = null;
+  if (rsis.length >= 2) {
+    rsiToday = rsis[rsis.length - 1];
+    rsiWeak = rsiToday < 50 && rsiToday < rsis[rsis.length - 2];
+  }
+
+  const kd = calcKDSeries_GAS(ohlc, 9);
+  let kdDeathCross = false, kToday = null, dToday = null;
+  if (kd.k.length >= 1) {
+    kToday = kd.k[kd.k.length - 1];
+    dToday = kd.d[kd.d.length - 1];
+    kdDeathCross = kToday < dToday && kToday <= 50 && dToday <= 50;
+  }
+
+  const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
+  const today = ohlc[ohlc.length - 1];
+  const volSpikeDown = vols[vols.length - 1] > avgVol5 && today.close < today.open;
+
+  const macd = calcMACDSeries_GAS(cl);
+  let macdBearish = false;
+  if (macd.dif.length >= 2) {
+    const difToday = macd.dif[macd.dif.length - 1];
+    const histToday = macd.hist[macd.hist.length - 1];
+    macdBearish = difToday < 0 && histToday < 0 && histToday < macd.hist[macd.hist.length - 2];
+  }
+
+  const momentumHits = [rsiWeak, kdDeathCross, volSpikeDown, macdBearish].filter(Boolean).length;
+  const warn = maBearish && momentumHits >= 2;
+
+  return {
+    warn, maBearish, rsiWeak, kdDeathCross, volSpikeDown, macdBearish, momentumHits,
+    detail: `均線${maBearish ? '空頭排列' : '尚未轉空'} / RSI${rsiToday !== null ? rsiToday.toFixed(0) : '-'} / K${kToday !== null ? kToday.toFixed(0) : '-'}D${dToday !== null ? dToday.toFixed(0) : '-'} / 動能轉弱${momentumHits}/4項`
+  };
+}
+
+// 大盤空頭確認 Checklist（止穩訊號的鏡像，5項訊號判定空軍是否增加）
+function checkMarketBearishSignals() {
+  const items = [];
+
+  // ① 台積電轉弱：連2日收盤跌破前高且跌破5日線
+  try {
+    const start = getDaysAgo(20);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=2330&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const data = (json.data || []).filter(d => d.close > 0);
+    if (data.length >= 7) {
+      const closes = data.map(d => d.close);
+      const last = closes[closes.length - 1], prev = closes[closes.length - 2];
+      const priorHigh = Math.max(...closes.slice(-7, -2));
+      const ma5 = calcMA_GAS(closes, 5);
+      const warn = last < priorHigh && prev < priorHigh && last < ma5 && prev < ma5;
+      items.push({ key: '①', name: '台積電轉弱跌破5日線', warn, detail: `收盤${last} / 前高${priorHigh.toFixed(1)} / 5MA${ma5.toFixed(1)}` });
+    } else {
+      items.push({ key: '①', name: '台積電轉弱跌破5日線', warn: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '①', name: '台積電轉弱跌破5日線', warn: false, detail: '抓取失敗：' + e.message }); }
+
+  // ② 外資單日賣超擴大超過300億
+  try {
+    const start = getDaysAgo(5);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockTotalInstitutionalInvestors&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const rows = (json.data || []).filter(d => (d.name || '').indexOf('外資') !== -1);
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1];
+      const net = (last.buy || 0) - (last.sell || 0);
+      const warn = net <= -30000000000;
+      items.push({ key: '②', name: '外資賣超擴大', warn, detail: `淨額約 ${(net / 1e8).toFixed(1)} 億` });
+    } else {
+      items.push({ key: '②', name: '外資賣超擴大', warn: false, detail: '無資料' });
+    }
+  } catch(e) { items.push({ key: '②', name: '外資賣超擴大', warn: false, detail: '抓取失敗：' + e.message }); }
+
+  // ③ 大盤融資單日大增（散戶還在追高，通常是頭部警訊）
+  try {
+    const start = getDaysAgo(5);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockTotalMarginPurchaseShortSale&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const rows = (json.data || []).filter(d => (d.name || '').indexOf('融資') !== -1);
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1];
+      const diff = (last.TodayBalance || 0) - (last.YesBalance || 0);
+      const warn = diff >= BEARISH_MARGIN_SURGE_THRESHOLD;
+      items.push({ key: '③', name: '融資單日大增(散戶追高)', warn, detail: `單日變化約 ${(diff / 1e8).toFixed(1)} 億（單位待校正）` });
+    } else {
+      items.push({ key: '③', name: '融資單日大增(散戶追高)', warn: false, detail: '無資料' });
+    }
+  } catch(e) { items.push({ key: '③', name: '融資單日大增(散戶追高)', warn: false, detail: '抓取失敗：' + e.message }); }
+
+  // ④ 費半連2日創新低或單日重挫2%+收低
+  try {
+    const start = getDaysAgo(15);
+    const res = UrlFetchApp.fetch(
+      `https://api.finmindtrade.com/api/v4/data?dataset=USStockPrice&data_id=^SOX&start_date=${start}&token=${CONFIG.FINMIND_TOKEN}`,
+      { muteHttpExceptions: true }
+    );
+    const json = JSON.parse(res.getContentText());
+    const data = (json.data || []).filter(d => d.Close > 0);
+    if (data.length >= 5) {
+      const closes = data.map(d => d.Close);
+      const last = closes[closes.length - 1], prev = closes[closes.length - 2];
+      const priorLow = Math.min(...closes.slice(0, -2));
+      const bigDrop = prev > 0 && (last - prev) / prev <= -0.02 && last < prev;
+      const newLow2Days = last <= priorLow && prev <= priorLow;
+      const warn = bigDrop || newLow2Days;
+      items.push({ key: '④', name: '費半重挫或破底', warn, detail: `收盤 ${last.toFixed(0)} / 前低 ${priorLow.toFixed(0)}` });
+    } else {
+      items.push({ key: '④', name: '費半重挫或破底', warn: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '④', name: '費半重挫或破底', warn: false, detail: '抓取失敗：' + e.message }); }
+
+  // ⑤ 跌破月線(20MA)且爆量下跌（成交金額代理，同樣需要肉眼確認K棒形狀）
+  try {
+    const closes = [], amounts = [];
+    const now = new Date();
+    for (let m = 1; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const dateStr = Utilities.formatDate(d, 'Asia/Taipei', 'yyyyMMdd');
+      const url = `https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${dateStr}&response=json`;
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) continue;
+      const json = JSON.parse(res.getContentText());
+      if (json.stat !== 'OK' || !json.data) continue;
+      json.data.forEach(row => {
+        const idx = parseFloat(String(row[4]).replace(/,/g, ''));
+        const amt = parseFloat(String(row[2]).replace(/,/g, ''));
+        if (idx > 0) { closes.push(idx); amounts.push(amt); }
+      });
+    }
+    if (closes.length >= 20) {
+      const lastIdx = closes[closes.length - 1], lastAmt = amounts[amounts.length - 1];
+      const ma20 = calcMA_GAS(closes, 20);
+      const belowMA20 = lastIdx < ma20;
+      const bigVolume = lastAmt >= 1.3e12;
+      const warn = belowMA20 && bigVolume;
+      items.push({ key: '⑤', name: '跌破月線且爆量下跌', warn, detail: `指數 ${lastIdx.toFixed(0)} / 20MA ${ma20.toFixed(0)} / 金額 ${(lastAmt / 1e12).toFixed(2)}兆` });
+    } else {
+      items.push({ key: '⑤', name: '跌破月線且爆量下跌', warn: false, detail: '資料不足' });
+    }
+  } catch(e) { items.push({ key: '⑤', name: '跌破月線且爆量下跌', warn: false, detail: '抓取失敗：' + e.message }); }
+
+  const count = items.filter(i => i.warn).length;
+  let verdict;
+  if (count >= 3) verdict = `${count}/5 成立 → 空頭訊號強烈，建議停利出場，暫停加碼`;
+  else if (count >= 2) verdict = `${count}/5 成立 → 空軍增加中，提高警覺，準備停利`;
+  else verdict = `${count}/5 成立 → 暫無明顯空頭訊號`;
+
+  return { count, total: 5, items, verdict };
+}
+
+// 從 Trades 工作表推算目前實際持股（買進累加、賣出扣除，只回傳淨部位>0的）
+function getCurrentHoldings_() {
+  const trades = loadTrades();
+  const positions = {};
+  trades.forEach(t => {
+    const id = String(t.id || '').trim();
+    if (!id) return;
+    const shares = Number(t.shares) || 0;
+    const action = String(t.action || '').toLowerCase();
+    if (!positions[id]) positions[id] = { id, name: t.name || '', netShares: 0 };
+    if (action === 'buy') positions[id].netShares += shares;
+    else if (action === 'sell') positions[id].netShares -= shares;
+    if (t.name) positions[id].name = t.name;
+  });
+  return Object.values(positions).filter(p => p.netShares > 0);
+}
+
+// 整合入口：大盤空頭確認 + 庫存清單逐檔檢查
+function checkPortfolioBearishWarning() {
+  const holdings = getCurrentHoldings_();
+  const results = [];
+
+  holdings.forEach(h => {
+    try {
+      const start90 = getDaysAgo(90);
+      const res = UrlFetchApp.fetch(
+        `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${h.id}&start_date=${start90}&token=${CONFIG.FINMIND_TOKEN}`,
+        { muteHttpExceptions: true }
+      );
+      const json = JSON.parse(res.getContentText());
+      if (json.status !== 200 || !json.data || json.data.length < 65) {
+        results.push({ id: h.id, name: h.name, netShares: h.netShares, warn: false, detail: '資料不足' });
+        return;
+      }
+      const ohlc = json.data;
+      const vols = ohlc.map(d => d.Trading_Volume || 0);
+      const signal = checkBearishExit(ohlc, vols);
+      results.push(Object.assign({ id: h.id, name: h.name, netShares: h.netShares }, signal));
+    } catch(e) {
+      results.push({ id: h.id, name: h.name, netShares: h.netShares, warn: false, detail: '抓取失敗：' + e.message });
+    }
+    Utilities.sleep(500);
+  });
+
+  const market = checkMarketBearishSignals();
+  const warnedHoldings = results.filter(r => r.warn);
+
+  return { market, holdings: results, warnedHoldings, warnedCount: warnedHoldings.length, totalHoldings: holdings.length };
+}
 
 function runPhase1() {
   Logger.log('Phase1 開始，使用 TWSE Open API 抓全市場當日資料');
@@ -430,6 +866,16 @@ function runPhase1() {
     Logger.log('❌ 無資料，可能今天休市');
     return [];
   }
+
+  // 統計全市場漲跌家數（Change 欄位）
+  let advCount = 0, decCount = 0;
+  allData.forEach(d => {
+    const chg = parseFloat(String(d.Change || '0').replace(/,/g, ''));
+    if (chg > 0) advCount++;
+    else if (chg < 0) decCount++;
+  });
+  _phase1AdvDec = { adv: advCount, dec: decCount };
+  Logger.log(`漲跌家數：漲 ${advCount} / 跌 ${decCount}`);
 
   const passed = [];
 
@@ -688,6 +1134,31 @@ function runPhase2Batch(stockIds, nameMap) {
         }
       } catch(e) {}
 
+      // 融資融券排除層：使用率過高(>85%)或單週暴增(>30%)代表籌碼過熱，直接排除
+      // （對應合晶6182案例：單週融資暴增近2萬張後最終走空）
+      let marginSignal = null;
+      try {
+        const marginRes = UrlFetchApp.fetch(
+          `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockMarginPurchaseShortSale&data_id=${id}&start_date=${start15}&token=${CONFIG.FINMIND_TOKEN}`,
+          { muteHttpExceptions: true }
+        );
+        const marginJson = JSON.parse(marginRes.getContentText());
+        if (marginJson.status === 200 && marginJson.data && marginJson.data.length >= 6) {
+          const md = marginJson.data.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+          const mToday = md[md.length - 1];
+          const mWeekAgo = md[md.length - 6];
+          const usageRatio = mToday.MarginPurchaseLimit > 0
+            ? mToday.MarginPurchaseTodayBalance / mToday.MarginPurchaseLimit : null;
+          const weeklyChangeRatio = mWeekAgo.MarginPurchaseTodayBalance > 0
+            ? (mToday.MarginPurchaseTodayBalance - mWeekAgo.MarginPurchaseTodayBalance) / mWeekAgo.MarginPurchaseTodayBalance
+            : null;
+          marginSignal = { usageRatio, weeklyChangeRatio };
+          const exclude = (usageRatio !== null && usageRatio > 0.85) ||
+                           (weeklyChangeRatio !== null && weeklyChangeRatio > 0.30);
+          if (exclude) return; // 融資排除層：籌碼過熱，跳過這檔
+        }
+      } catch(e) { Logger.log(`${id} 融資資料抓取失敗：${e.message}`); }
+
       // ATR
       const atr = calcATR_GAS(ohlc);
       if (!atr) return;
@@ -706,21 +1177,30 @@ function runPhase2Batch(stockIds, nameMap) {
         if (checkB(ohlc, itrustArr, foreignArr, tier)) hitCombos.push({ combo: 'B', base: 4 });
         if (checkC(ohlc, volumes, tier))         hitCombos.push({ combo: 'C', base: 3 });
         if (checkE(ohlc, volumes))               hitCombos.push({ combo: 'E', base: 2 });
+        if (checkG(ohlc, volumes))               hitCombos.push({ combo: 'G', base: 6 });
       } else {
         if (checkB(ohlc, itrustArr, foreignArr, tier)) hitCombos.push({ combo: 'B', base: 5 });
         if (checkD(ohlc, volumes, tier))         hitCombos.push({ combo: 'D', base: 5 });
         if (checkA(ohlc, volumes, tier))         hitCombos.push({ combo: 'A', base: 4 });
         if (checkC(ohlc, volumes, tier))         hitCombos.push({ combo: 'C', base: 3 });
         if (checkE(ohlc, volumes))               hitCombos.push({ combo: 'E', base: 2 });
+        if (checkG(ohlc, volumes))               hitCombos.push({ combo: 'G', base: 6 });
       }
       if (hitCombos.length === 0) return;
 
+      // 融資加分層：融資週增率為負(籌碼退潮)且股價創20日新高＝法人推動而非融資堆疊的上漲
+      let marginBonus = 0;
+      if (marginSignal && marginSignal.weeklyChangeRatio !== null && marginSignal.weeklyChangeRatio < 0) {
+        const high20 = Math.max(...ohlc.slice(-21, -1).map(d => d.max || d.high || d.close));
+        if (lastClose > high20) marginBonus = 1;
+      }
+
       const basePriority = Math.max(...hitCombos.map(c => c.base));
       const crossBonus = hitCombos.length >= 3 ? 2 : hitCombos.length === 2 ? 1 : 0;
-      const priority = basePriority + crossBonus; // 無上限，有幾顆顯示幾顆
+      const priority = basePriority + crossBonus + marginBonus; // 無上限，有幾顆顯示幾顆
       const combos = hitCombos.map(c => c.combo);
       const combo = combos[0];
-      const atrMult = { B: 2.0, D: 2.0, A: 1.5, C: 1.5, E: 1.0, F: 1.5 }[combo] || 1.5;
+      const atrMult = { B: 2.0, D: 2.0, A: 1.5, C: 1.5, E: 1.0, F: 1.5, G: 2.0 }[combo] || 1.5;
 
       // 建議進場價：依組合類型，用技術回檔點而非直接用收盤價
       // A/D 突破型：等回檔 0.3~0.5 ATR 進場，避免追高
@@ -728,7 +1208,7 @@ function runPhase2Batch(stockIds, nameMap) {
       // C 反轉型：反彈確認後，接近低點支撐
       // E 強勢型：不等回檔，直接用收盤（已是強勢慣性，回檔少）
       // F 小型爆量：保守，等 -0.3 ATR
-      const entryDiscount = { A: 0.4, B: 0.2, C: 0.5, D: 0.35, E: 0.0, F: 0.3 }[combo] || 0.3;
+      const entryDiscount = { A: 0.4, B: 0.2, C: 0.5, D: 0.35, E: 0.0, F: 0.3, G: 0.35 }[combo] || 0.3;
       const entryPrice = Math.round((lastClose - atr * entryDiscount) * 100) / 100;
 
       const stopLoss = Math.round((entryPrice - atr * atrMult) * 100) / 100;
@@ -742,12 +1222,14 @@ function runPhase2Batch(stockIds, nameMap) {
 
       results.push({
         id, name: nameMap[id] || '', tier, combo, combos, priority,
-        hitCount: hitCombos.length, crossBonus,
+        hitCount: hitCombos.length, crossBonus, marginBonus,
         entryPrice, lastClose, stopLoss, target1, target2,
         atr: Math.round(atr * 100) / 100,
         chaseLimit: Math.round(lastClose * 1.02 * 100) / 100,  // 追價上限仍以收盤價為基準
         rs, itrustBuy: itrustArr.slice(-5).filter(v => v > 0).length,
         foreignBuy: foreignArr.slice(-3).filter(v => v > 0).length,
+        marginUsage: marginSignal && marginSignal.usageRatio !== null ? Math.round(marginSignal.usageRatio * 1000) / 10 : null,
+        marginWeeklyChange: marginSignal && marginSignal.weeklyChangeRatio !== null ? Math.round(marginSignal.weeklyChangeRatio * 1000) / 10 : null,
       });
 
     } catch(e) {
@@ -785,6 +1267,71 @@ function calcATR_GAS(ohlc, period) {
 
 function getVolMult(tier) {
   return { large: 1.5, mid: 1.8, small: 2.0 }[tier] || 1.8;
+}
+
+// ── 日線趨勢篩選法（checkG）用的指標序列 ──────────
+
+// RSI 序列（Wilder's smoothing），回傳整段序列方便比較「今天 vs 昨天」
+function calcRSISeries_GAS(closes, period) {
+  period = period || 14;
+  if (closes.length < period + 1) return [];
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period, avgLoss = losses / period;
+  const rsis = [avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)];
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    rsis.push(avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+  }
+  return rsis;
+}
+
+// KD 序列（RSV 9 日，K/D 用 1/3 平滑，台股慣用參數 9,3,3）
+function calcKDSeries_GAS(ohlc, period) {
+  period = period || 9;
+  if (ohlc.length < period) return { k: [], d: [] };
+  const kArr = [], dArr = [];
+  let prevK = 50, prevD = 50;
+  for (let i = period - 1; i < ohlc.length; i++) {
+    const slice = ohlc.slice(i - period + 1, i + 1);
+    const high = Math.max(...slice.map(d => d.max || d.high || d.close));
+    const low = Math.min(...slice.map(d => d.min || d.low || d.close));
+    const close = ohlc[i].close;
+    const rsv = high === low ? 50 : (close - low) / (high - low) * 100;
+    const k = prevK * 2 / 3 + rsv * 1 / 3;
+    const d = prevD * 2 / 3 + k * 1 / 3;
+    kArr.push(k); dArr.push(d);
+    prevK = k; prevD = d;
+  }
+  return { k: kArr, d: dArr };
+}
+
+// EMA 序列，MACD 的基礎
+function calcEMASeries_GAS(values, period) {
+  const k = 2 / (period + 1);
+  const emaArr = [values[0]];
+  for (let i = 1; i < values.length; i++) {
+    emaArr.push(values[i] * k + emaArr[i - 1] * (1 - k));
+  }
+  return emaArr;
+}
+
+// MACD 序列（12,26,9），dif=快慢EMA差, dea=dif的9日EMA, hist=柱狀體(dif-dea)
+function calcMACDSeries_GAS(closes) {
+  if (closes.length < 35) return { dif: [], dea: [], hist: [] };
+  const emaFast = calcEMASeries_GAS(closes, 12);
+  const emaSlow = calcEMASeries_GAS(closes, 26);
+  const dif = closes.map((_, i) => emaFast[i] - emaSlow[i]);
+  const dea = calcEMASeries_GAS(dif, 9);
+  const hist = dif.map((v, i) => v - dea[i]);
+  return { dif, dea, hist };
 }
 
 function checkA(ohlc, vols, tier) {
@@ -849,6 +1396,50 @@ function checkF(ohlc, vols) {
   return (high60 - low60) / low60 > 0.15 && today.close < high60 * 0.92;
 }
 
+// G：日線趨勢篩選法。三關（均線排列 / RSI+KD / 量能+MACD）要「全部」過，
+// 缺一關就不算，跟 A~F 用「命中即算一種型態」的邏輯不同，這是嚴格 AND。
+function checkG(ohlc, vols) {
+  if (ohlc.length < 65) return false; // 60MA + MACD/RSI 穩定所需的緩衝天數
+  const cl = ohlc.map(d => d.close);
+  const lastClose = cl[cl.length - 1];
+
+  // ① 均線排列：K棒站上所有均線，且 5>10>20>60（多頭排列）
+  const ma5 = calcMA_GAS(cl, 5), ma10 = calcMA_GAS(cl, 10);
+  const ma20 = calcMA_GAS(cl, 20), ma60 = calcMA_GAS(cl, 60);
+  if (!ma5 || !ma10 || !ma20 || !ma60) return false;
+  if (!(lastClose > ma5 && ma5 > ma10 && ma10 > ma20 && ma20 > ma60)) return false;
+
+  // ② RSI 50以上且比昨天高 ＋ KD 50以上黃金交叉
+  const rsis = calcRSISeries_GAS(cl, 14);
+  if (rsis.length < 2) return false;
+  const rsiToday = rsis[rsis.length - 1], rsiYest = rsis[rsis.length - 2];
+  if (!(rsiToday > 50 && rsiToday > rsiYest)) return false;
+
+  // 註：原始定義是「當天剛好黃金交叉」，但這樣太嚴格——趨勢一旦成立，
+  // K會持續站在D之上好幾天，只有交叉當天才算會讓每天幾乎掃不到任何股票。
+  // 改成「K>D 且兩者都在50以上」，代表仍處於交叉後的轉強區間，較實用。
+  // 如果你想要更嚴格、只抓「剛轉強的當天」，把下面這行換成：
+  // const kdGoldenCross = kd.k[kd.k.length-2] <= kd.d[kd.d.length-2] && kToday > dToday && kToday >= 50 && dToday >= 50;
+  const kd = calcKDSeries_GAS(ohlc, 9);
+  if (kd.k.length < 1) return false;
+  const kToday = kd.k[kd.k.length - 1], dToday = kd.d[kd.d.length - 1];
+  const kdGoldenCross = kToday > dToday && kToday >= 50 && dToday >= 50;
+  if (!kdGoldenCross) return false;
+
+  // ③ 成交量站上5日均量 ＋ MACD零軸以上且柱狀體翻紅並放大
+  const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
+  if (!(vols[vols.length - 1] > avgVol5)) return false;
+
+  const macd = calcMACDSeries_GAS(cl);
+  if (macd.dif.length < 2) return false;
+  const difToday = macd.dif[macd.dif.length - 1];
+  const histToday = macd.hist[macd.hist.length - 1];
+  const histYest = macd.hist[macd.hist.length - 2];
+  if (!(difToday > 0 && histToday > 0 && histToday > histYest)) return false;
+
+  return true;
+}
+
 // ══════════════════════════════════════════════
 // 掃描進度管理
 // ══════════════════════════════════════════════
@@ -861,7 +1452,7 @@ function initScanProgress() {
     candidates: [],
     done: false,
     scanDone: false,
-    marketPass: true,
+    marketPass: null,
     startedAt: new Date().toISOString(),
     totalCandidates: 0,
     geminiOffset: 0,
@@ -1252,6 +1843,45 @@ function sendScanEmail(results, summary) {
       </tr>`;
     }).join('');
 
+    const stab = summary.stabilization;
+    const bear = summary.bearishWarning;
+
+    const bearHoldingsRows = bear && bear.warnedHoldings.length > 0
+      ? bear.warnedHoldings.map(h => `<tr style="border-bottom:1px solid #f0dede;">
+          <td style="padding:6px 8px;font-weight:700;font-family:monospace;">${h.id}</td>
+          <td style="padding:6px 8px;color:#7a7168;">${h.name || ''}</td>
+          <td style="padding:6px 8px;color:#b5726a;font-size:11px;">${h.detail}</td>
+        </tr>`).join('')
+      : '';
+
+    const bearBlock = bear ? `
+  <div style="padding:16px 28px 0;">
+    <div style="font-size:13px;font-weight:700;color:#b5726a;margin-bottom:8px;">🐻 空頭警示：${bear.market.verdict}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;">
+      ${bear.market.items.map(i => `<tr style="border-bottom:1px solid #edeae2;">
+        <td style="padding:6px 8px;color:${i.warn ? '#b5726a' : '#b0a99f'};">${i.warn ? '⚠' : '─'} ${i.key}</td>
+        <td style="padding:6px 8px;">${i.name}</td>
+        <td style="padding:6px 8px;color:#7a7168;">${i.detail}</td>
+      </tr>`).join('')}
+    </table>
+    ${bear.totalHoldings > 0 ? `
+    <div style="font-size:12px;font-weight:700;color:#2c4a6e;margin-bottom:6px;">庫存清單檢查：${bear.warnedCount}/${bear.totalHoldings} 檔出現空頭警示</div>
+    ${bearHoldingsRows ? `<table style="width:100%;border-collapse:collapse;font-size:12px;background:#fbf3f3;border-radius:6px;">${bearHoldingsRows}</table>` : '<div style="font-size:12px;color:#7aab8a;">目前庫存股沒有出現空頭警示</div>'}
+    ` : '<div style="font-size:12px;color:#b0a99f;">Trades 工作表目前沒有偵測到持股</div>'}
+  </div>` : '';
+
+    const stabBlock = stab ? `
+  <div style="padding:16px 28px 0;">
+    <div style="font-size:13px;font-weight:700;color:#2c4a6e;margin-bottom:8px;">📍 止穩訊號 Checklist：${stab.verdict}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      ${stab.items.map(i => `<tr style="border-bottom:1px solid #edeae2;">
+        <td style="padding:6px 8px;color:${i.pass ? '#7aab8a' : '#b0a99f'};">${i.pass ? '✓' : '✗'} ${i.key}</td>
+        <td style="padding:6px 8px;">${i.name}</td>
+        <td style="padding:6px 8px;color:#7a7168;">${i.detail}</td>
+      </tr>`).join('')}
+    </table>
+  </div>` : '';
+
     const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#f5f2ec;margin:0;padding:20px;">
 <div style="max-width:700px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;">
   <div style="background:#2c4a6e;padding:24px 28px;">
@@ -1266,6 +1896,8 @@ function sendScanEmail(results, summary) {
     <div style="text-align:center;"><div style="font-size:20px;font-weight:700;color:#c9a96e;">${tierCount.small}</div><div style="font-size:11px;color:#7a7168;">小型股</div></div>
     <div style="text-align:center;"><div style="font-size:16px;font-weight:700;color:${summary.marketPass ? '#7aab8a' : '#b5726a'};">${summary.marketPass ? '✓ 多頭' : '✗ 謹慎'}</div><div style="font-size:11px;color:#7a7168;">大盤</div></div>
   </div>
+  ${bearBlock}
+  ${stabBlock}
   <div style="padding:20px 28px;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#edeae2;">
@@ -1551,4 +2183,23 @@ function setupAll() {
 function testScanNow() {
   Logger.log('=== 手動測試掃描 ===');
   dailyScanStart();
+}
+
+// 手動測試止穩訊號 Checklist（不用跑整個掃描，Apps Script編輯器直接執行這個函式看Logger輸出）
+function testStabilizationSignals() {
+  Logger.log('=== 手動測試止穩訊號 ===');
+  const result = checkStabilizationSignals();
+  Logger.log(JSON.stringify(result, null, 2));
+  Logger.log(`判定：${result.verdict}`);
+  return result;
+}
+
+// 手動測試空頭警示（大盤空頭確認 + 庫存清單逐檔檢查）
+function testBearishWarning() {
+  Logger.log('=== 手動測試空頭警示 ===');
+  const result = checkPortfolioBearishWarning();
+  Logger.log(JSON.stringify(result, null, 2));
+  Logger.log(`大盤：${result.market.verdict}`);
+  Logger.log(`持股警示：${result.warnedCount}/${result.totalHoldings} 檔`);
+  return result;
 }

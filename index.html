@@ -1050,6 +1050,14 @@
     </div>
   </div>
 
+  <!-- 空頭警示區 -->
+  <div id="bearishPanel" style="display:none;background:rgba(220,80,80,0.08);border:1px solid var(--red);border-radius:10px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
+    <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--red);text-transform:uppercase;letter-spacing:2px;margin-bottom:0.6rem;">🐻 空頭警示</div>
+    <div id="bearishVerdict" style="font-size:0.95rem;font-weight:700;color:var(--text);margin-bottom:0.8rem;">─</div>
+    <div id="bearishMarketItems" style="font-size:0.82rem;color:var(--text2);line-height:1.8;margin-bottom:0.8rem;"></div>
+    <div id="bearishHoldingsWrap"></div>
+  </div>
+
   <!-- Market condition -->
   <div class="market-bar" id="marketBar">
     <div class="market-card">
@@ -2160,8 +2168,62 @@ async function fetchRecommendations() {
         : `<span class="negative">謹慎 ✗</span>`;
       document.getElementById('marketFilterSub').textContent = progress2.marketPass
         ? '大盤多頭，可積極選股' : '大盤偏弱，嚴控風險';
-      document.getElementById('twseSub').textContent = progress2.completedAt
-        ? `掃描完成：${progress2.completedAt}` : '─';
+      // 顯示實際指數 vs 月線數字
+      const idxInfo = (progress2.marketIndex && progress2.marketMA20)
+        ? `指數 ${progress2.marketIndex.toLocaleString()} vs 月線 ${progress2.marketMA20.toLocaleString()}`
+        : (progress2.completedAt ? `掃描完成：${progress2.completedAt}` : '─');
+      document.getElementById('twseSub').textContent = idxInfo;
+
+      // 漲跌家數比
+      if (progress2.advCount != null && progress2.decCount != null && (progress2.advCount + progress2.decCount) > 0) {
+        const adv = progress2.advCount, dec = progress2.decCount;
+        const ratio = dec > 0 ? (adv / dec).toFixed(2) : '∞';
+        const adEl = document.getElementById('updownRatio');
+        const adSubEl = document.getElementById('updownSub');
+        if (adEl) adEl.innerHTML = adv >= dec
+          ? `<span class="positive">${ratio}</span>`
+          : `<span class="negative">${ratio}</span>`;
+        if (adSubEl) adSubEl.textContent = `漲 ${adv} 家 / 跌 ${dec} 家`;
+      }
+
+      // 空頭警示區塊
+      const bear = progress2.bearishWarning;
+      const bearPanel = document.getElementById('bearishPanel');
+      if (bear && bearPanel) {
+        // 只有「大盤空頭確認 ≥2項」或「有庫存被警示」時才顯示，避免平常沒事也跳出來
+        const shouldShow = (bear.market?.count || 0) >= 2 || bear.warnedCount > 0;
+        if (shouldShow) {
+          bearPanel.style.display = 'block';
+          document.getElementById('bearishVerdict').textContent = `大盤：${bear.market.verdict}`;
+
+          const marketItemsHtml = (bear.market.items || []).map(i => `
+            <div>${i.warn ? '⚠️' : '─'} ${i.key} ${i.name}：<span style="color:var(--text3);">${i.detail}</span></div>
+          `).join('');
+          document.getElementById('bearishMarketItems').innerHTML = marketItemsHtml;
+
+          const holdingsWrap = document.getElementById('bearishHoldingsWrap');
+          if (bear.warnedCount > 0) {
+            const rows = bear.warnedHoldings.map(h => `
+              <div style="display:flex;justify-content:space-between;padding:0.5rem 0.7rem;background:var(--bg2);border-radius:6px;margin-bottom:0.4rem;">
+                <div><b style="font-family:var(--font-mono);">${h.id}</b> <span style="color:var(--text2);">${h.name || ''}</span></div>
+                <div style="font-size:0.78rem;color:var(--red);text-align:right;">${h.detail}</div>
+              </div>
+            `).join('');
+            holdingsWrap.innerHTML = `
+              <div style="font-size:0.85rem;font-weight:700;color:var(--red);margin-bottom:0.5rem;">
+                庫存警示：${bear.warnedCount}/${bear.totalHoldings} 檔 → 建議考慮停利出場
+              </div>${rows}`;
+          } else if (bear.totalHoldings > 0) {
+            holdingsWrap.innerHTML = `<div style="font-size:0.82rem;color:var(--green);">目前庫存股（共${bear.totalHoldings}檔）沒有出現空頭警示</div>`;
+          } else {
+            holdingsWrap.innerHTML = `<div style="font-size:0.82rem;color:var(--text3);">Trades 工作表目前沒有偵測到持股</div>`;
+          }
+        } else {
+          bearPanel.style.display = 'none';
+        }
+      } else if (bearPanel) {
+        bearPanel.style.display = 'none';
+      }
     }
 
     saveState();
@@ -2310,14 +2372,15 @@ function renderRecommendations(results) {
   const area = document.getElementById('stockListArea');
   if (results.length === 0) return;
 
-  const comboNames = { A:'趨勢突破', B:'籌碼驅動', C:'爆量反轉', D:'箱型突破', E:'強勢慣性', F:'小型爆量' };
+  const comboNames = { A:'趨勢突破', B:'籌碼驅動', C:'爆量反轉', D:'箱型突破', E:'強勢慣性', F:'小型爆量', G:'日線趨勢篩選' };
   const comboDesc = {
     A: '收盤突破近20日高點，成交量依市值放大，均線多頭排列',
     B: '投信連續買超，外資同向（小型股放寬），站上月線',
     C: '前期長黑後爆量收紅，從低點反彈超過5%，V轉訊號',
     D: '箱型整理後帶量突破壓力，能量積累充分',
     E: '5日漲幅超過10%，成交量持續放大，強勢動能延伸',
-    F: '小型股專屬：爆量超過20日均量2.5倍，突破昨日最高，低檔整理後起漲'
+    F: '小型股專屬：爆量超過20日均量2.5倍，突破昨日最高，低檔整理後起漲',
+    G: '均線多頭排列＋RSI/KD轉強＋量能MACD同步放大，三關全過的嚴格趨勢篩選'
   };
 
   const tierLabel = { large:'大型股', mid:'中型股', small:'小型股' };
