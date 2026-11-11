@@ -1522,6 +1522,10 @@ function markScanDone(results, isEmpty) {
 // 掃描結果儲存與讀取
 // ══════════════════════════════════════════════
 
+// 讀寫 ScanResults 時只看表尾這麼多列：資料永遠是逐日append在最後面，
+// 「今日資料」一定落在這個視窗內，不需要隨著累積的歷史天數讀越多、越讀越慢
+const SCAN_READ_WINDOW = 1000;
+
 // 欄位定義（共 28 欄，每個個股獨立一列，最前面是日期）
 const SCAN_HEADERS = [
   '掃描日期',   // 0  A
@@ -1567,14 +1571,26 @@ function saveScanResultsToSheet(results) {
   }
 
   // 刪除今日舊資料（避免重複）
+  // 只往回看最後一段視窗：今日資料一定寫在表尾，不需要隨歷史累積逐天變慢
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {
-    const dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    const scanStart = Math.max(2, lastRow - SCAN_READ_WINDOW + 1);
+    const dates = sheet.getRange(scanStart, 1, lastRow - scanStart + 1, 1).getValues();
     const todayRowNums = [];
-    dates.forEach((d, i) => { if (d[0] === today) todayRowNums.push(i + 2); });
-    // 從後往前刪，避免索引位移
-    for (let i = todayRowNums.length - 1; i >= 0; i--) {
-      sheet.deleteRow(todayRowNums[i]);
+    dates.forEach((d, i) => { if (d[0] === today) todayRowNums.push(scanStart + i); });
+    // 今日資料是連續寫入的同一段，合併成連續區段後一次刪除，避免逐列呼叫 deleteRow（每次都是一次慢速 API 往返）
+    if (todayRowNums.length > 0) {
+      const segments = [];
+      let segStart = todayRowNums[0], segEnd = todayRowNums[0];
+      for (let i = 1; i < todayRowNums.length; i++) {
+        if (todayRowNums[i] === segEnd + 1) { segEnd = todayRowNums[i]; }
+        else { segments.push([segStart, segEnd]); segStart = segEnd = todayRowNums[i]; }
+      }
+      segments.push([segStart, segEnd]);
+      // 從後往前刪，避免索引位移
+      for (let i = segments.length - 1; i >= 0; i--) {
+        sheet.deleteRows(segments[i][0], segments[i][1] - segments[i][0] + 1);
+      }
     }
   }
 
@@ -1624,11 +1640,12 @@ function saveScanResultsToSheet(results) {
 
   sheet.getRange(insertRow, 1, rows.length, SCAN_HEADERS.length).setValues(rows);
 
-  // 色彩標記優先級
-  rows.forEach((row, i) => {
+  // 色彩標記優先級（一次性批次設定，避免逐列呼叫 setBackground）
+  const bgColors = rows.map(row => {
     const bg = row[6] >= 5 ? '#e8f4ff' : row[6] >= 4 ? '#f0f8f0' : '#fffef0';
-    sheet.getRange(insertRow + i, 1, 1, SCAN_HEADERS.length).setBackground(bg);
+    return new Array(SCAN_HEADERS.length).fill(bg);
   });
+  sheet.getRange(insertRow, 1, rows.length, SCAN_HEADERS.length).setBackgrounds(bgColors);
 
   Logger.log(`已儲存 ${results.length} 筆掃描結果（${today}）`);
 }
@@ -1639,7 +1656,10 @@ function loadScanResults() {
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return [];
 
-    const data = sheet.getRange(2, 1, lastRow - 1, SCAN_HEADERS.length).getValues();
+    // 只讀表尾視窗，不要隨歷史累積把整張表讀出來找「最新日期」（見 SCAN_READ_WINDOW 說明）
+    const readCount = Math.min(lastRow - 1, SCAN_READ_WINDOW);
+    const startRow = lastRow - readCount + 1;
+    const data = sheet.getRange(startRow, 1, readCount, SCAN_HEADERS.length).getValues();
     if (data.length === 0) return [];
 
     // 日期欄位可能是 Date 物件或字串，統一轉成 YYYY-MM-DD 字串
